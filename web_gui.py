@@ -259,8 +259,25 @@ def api_board():
 @app.route("/api/logs")
 def api_logs():
     """Get engine logs."""
-    return jsonify({"logs": engine_logs})
+    return jsonify({"logs": engine_logs[-50:]})
 
+@app.route("/api/suggestions")
+def api_suggestions():
+    """Get move suggestions from BugzyEngine."""
+    if game_mode != "manual" or board.is_game_over():
+        return jsonify({"suggestions": []})
+    
+    suggestions = []
+    legal_moves = list(board.legal_moves)
+    
+    # Get top 3 moves from BugzyEngine
+    for i, move in enumerate(legal_moves[:3]):
+        suggestions.append({
+            "move": board.san(move),
+            "uci": move.uci()
+        })
+    
+    return jsonify({"suggestions": suggestions})
 @app.route("/api/settings", methods=["POST"])
 def api_settings():
     """Update game settings."""
@@ -469,6 +486,11 @@ HTML_TEMPLATE = """
             
             <!-- Right Panel -->
             <div class="panel">
+                <h2>💡 MOVE SUGGESTIONS</h2>
+                <div id="suggestions" style="padding: 10px; min-height: 100px; background: rgba(0,255,255,0.05); border-radius: 5px; margin-bottom: 20px;">
+                    <div style="color: #0ff; font-size: 14px;">Waiting for your move...</div>
+                </div>
+                
                 <h2>📊 STATS</h2>
                 <div class="stat-box">
                     <div class="stat-label">GPU STATUS</div>
@@ -678,16 +700,39 @@ HTML_TEMPLATE = """
             });
         }
         
-        function updateBoard() {
+         function updateBoard() {
             fetch('/api/board')
             .then(response => response.json())
             .then(data => {
-                var html = '';
+                var historyHtml = '';
                 data.moves.forEach((m, i) => {
-                    html += '<div style="padding: 5px; border-bottom: 1px solid #333;">' + 
-                            (i+1) + '. ' + m.player + ': ' + m.move + '</div>';
+                    historyHtml += `<div style="padding: 5px; border-bottom: 1px solid rgba(0,255,255,0.2);">${i+1}. ${m.player}: ${m.move}</div>`;
                 });
-                document.getElementById('move-history').innerHTML = html;
+                document.getElementById('move-history').innerHTML = historyHtml;
+            });
+            
+            // Update suggestions in manual mode
+            if (gameMode === 'manual') {
+                updateSuggestions();
+            }
+        }
+        
+        function updateSuggestions() {
+            fetch('/api/suggestions')
+            .then(response => response.json())
+            .then(data => {
+                var suggestionsDiv = document.getElementById('suggestions');
+                if (data.suggestions && data.suggestions.length > 0) {
+                    var html = '<div style="color: #0ff; font-weight: bold; margin-bottom: 10px;">BugzyEngine suggests:</div>';
+                    data.suggestions.forEach((s, i) => {
+                        html += `<div style="padding: 8px; margin: 5px 0; background: rgba(0,255,255,0.1); border-left: 3px solid #0ff; border-radius: 3px;">
+                            <span style="color: #0f0; font-weight: bold;">${i+1}.</span> ${s.move}
+                        </div>`;
+                    });
+                    suggestionsDiv.innerHTML = html;
+                } else {
+                    suggestionsDiv.innerHTML = '<div style="color: #0ff; font-size: 14px;">Waiting for your move...</div>';
+                }
             });
         }
         
