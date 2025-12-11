@@ -109,6 +109,7 @@ def train_model(model, data_path):
 
 def main():
     """Main function for the trainer."""
+    os.makedirs(DATA_PATH, exist_ok=True)
     os.makedirs(PROCESSED_PATH, exist_ok=True)
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
 

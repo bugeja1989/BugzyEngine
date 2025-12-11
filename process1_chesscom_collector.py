@@ -153,12 +153,16 @@ def is_game_style_match(game, player_username):
 
 # --- Main Collector Logic ---
 async def process_player(session, player_username):
-    logger.info(f"Processing player: {player_username}")
+    logger.info(f"📥 Processing player: {player_username}")
     archives_url = f"{CHESS_COM_API_BASE_URL}/player/{player_username}/games/archives"
     archives_json = await fetch(session, archives_url)
     if not archives_json or "archives" not in archives_json:
+        logger.warning(f"⚠️  No archives found for {player_username}")
         return
+    
+    logger.info(f"   Found {len(archives_json['archives'])} archive(s) for {player_username}")
 
+    games_collected = 0
     for archive_url in archives_json["archives"]:
         pgn_text = await fetch_pgn(session, archive_url + "/pgn")
         if not pgn_text:
@@ -181,10 +185,16 @@ async def process_player(session, player_username):
                             exporter = chess.pgn.FileExporter(out_pgn)
                             game.accept(exporter)
                         mark_game_processed(game_id, player_username)
+                        games_collected += 1
                 except Exception as e:
                     logger.error(f"Malformed game in {player_username}'s archive: {e}")
                     continue
         os.remove(f"{DATA_DIR}/{player_username}_temp.pgn")
+    
+    if games_collected > 0:
+        logger.info(f"✅ Collected {games_collected} game(s) from {player_username}")
+    else:
+        logger.info(f"⏭️  No matching games found for {player_username}")
 
 async def main_async():
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -220,11 +230,19 @@ async def main_async():
                         target_players.add(player_username)
                     await asyncio.sleep(0.1) # Be nice to the API
 
-        logger.info(f"Discovered {len(target_players)} unique players to process.")
+        logger.info(f"🎯 Discovered {len(target_players)} unique players to process.")
+        logger.info(f"⚙️  Concurrency limit: {COLLECTOR_CONCURRENCY} players at a time")
+        logger.info(f"")
+        logger.info(f"🚀 Starting game collection...")
+        logger.info(f"")
 
         # --- Concurrent Game Collection ---
         tasks = [process_player_sema(session, player) for player in target_players]
         await asyncio.gather(*tasks)
+        
+        logger.info(f"")
+        logger.info(f"✅ Game collection complete!")
+        logger.info(f"📊 Check data/raw_pgn/ for downloaded games")
 
 # --- Folder Watcher ---
 class PGNHandler(FileSystemEventHandler):
