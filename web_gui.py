@@ -996,21 +996,24 @@ CYBERPUNK_HTML_V5 = """
             }
         }
         
-        // Initialize
-        let config = {
-            draggable: true,
-            position: 'start',
-            onDragStart: onDragStart,
-            onDrop: onDrop,
-            onSnapEnd: onSnapEnd,
-            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
-        };
-        board = Chessboard('board', config);
-        
-        updateStatus();
-        setInterval(updateStats, 2000);
-        setInterval(updateLogs, 2000);
-        setInterval(updateBoard, 1000);
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            let config = {
+                draggable: true,
+                position: 'start',
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd,
+                pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+            };
+            board = Chessboard('board', config);
+            
+            updateStatus();
+            updateStats();  // Initial call
+            setInterval(updateStats, 2000);
+            setInterval(updateLogs, 2000);
+            setInterval(updateBoard, 1000);
+        });
     </script>
 </body>
 </html>
