@@ -1,0 +1,7 @@
+chess
+numpy
+torch
+torchvision
+requests
+flask
+watchdog
