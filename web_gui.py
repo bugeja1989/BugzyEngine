@@ -163,21 +163,54 @@ def api_move():
     data = request.json
     player_move = data.get("move")
     
-    if player_move:
+    # Manual mode: handle player move
+    if player_move and game_mode == "manual":
         try:
             move = chess.Move.from_uci(player_move)
             if move in board.legal_moves:
+                san = board.san(move)
                 board.push(move)
-                move_history.append({"move": board.san(move), "player": "You"})
+                move_history.append({"move": san, "player": "You"})
+                add_log(f"You: {san}")
         except:
             pass
     
-    if not board.is_game_over() and game_mode == "manual":
-        engine_move = get_bugzy_move()
-        if engine_move:
-            san = board.san(engine_move)
-            board.push(engine_move)
-            move_history.append({"move": san, "player": "BugzyEngine"})
+    # Make engine move(s)
+    if not board.is_game_over():
+        if game_mode == "manual":
+            # Manual mode: BugzyEngine responds
+            engine_move = get_bugzy_move()
+            if engine_move:
+                san = board.san(engine_move)
+                board.push(engine_move)
+                move_history.append({"move": san, "player": "BugzyEngine"})
+                add_log(f"BugzyEngine: {san}")
+        
+        elif game_mode == "simulation":
+            # Simulation mode: alternate between engines
+            if board.turn() == (chess.WHITE if player_color == "white" else chess.BLACK):
+                # BugzyEngine's turn
+                book_move = get_opening_move()
+                if book_move:
+                    san = board.san(book_move)
+                    board.push(book_move)
+                    move_history.append({"move": san, "player": "BugzyEngine (Book)"})
+                    add_log(f"BugzyEngine (Book): {san}")
+                else:
+                    engine_move = get_bugzy_move()
+                    if engine_move:
+                        san = board.san(engine_move)
+                        board.push(engine_move)
+                        move_history.append({"move": san, "player": "BugzyEngine"})
+                        add_log(f"BugzyEngine: {san}")
+            else:
+                # Stockfish's turn
+                stockfish_move = get_stockfish_move(stockfish_elo)
+                if stockfish_move:
+                    san = board.san(stockfish_move)
+                    board.push(stockfish_move)
+                    move_history.append({"move": san, "player": f"Stockfish-{stockfish_elo}"})
+                    add_log(f"Stockfish-{stockfish_elo}: {san}")
     
     return jsonify({
         "fen": board.fen(),
