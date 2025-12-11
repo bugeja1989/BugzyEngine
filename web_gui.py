@@ -111,7 +111,15 @@ def load_model():
             model.eval()
             model_loaded = True
             model_last_modified = current_mtime
-            model_version += 1
+            
+            # Read version from version.txt (matches trainer's versioning)
+            version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
+            try:
+                with open(version_file) as f:
+                    model_version = int(f.read().strip())
+            except:
+                model_version = 1
+            
             add_log(f"🔄 Model reloaded! Version: {model_version}")
             return True
         except Exception as e:
@@ -136,6 +144,13 @@ def init_stockfish():
 if load_model():
     add_log(f"🧠 BugzyEngine Model v{model_version} loaded")
 else:
+    # Even if model doesn't exist, try to read version from file
+    version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
+    try:
+        with open(version_file) as f:
+            model_version = int(f.read().strip())
+    except:
+        model_version = 0
     add_log("⚠️ No model found - playing randomly")
 
 init_stockfish()
