@@ -99,7 +99,9 @@ def process_single_pgn(file_path):
     except Exception:
         pass
     
-    np.savez_compressed(cache_file, positions=np.array(positions), outcomes=np.array(outcomes))
+    # Only cache if we have valid positions
+    if positions:
+        np.savez_compressed(cache_file, positions=np.array(positions), outcomes=np.array(outcomes))
     return file_path, positions, outcomes, False
 
 def train_on_batch(model, file_batch, batch_num, total_batches):
