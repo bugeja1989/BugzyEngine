@@ -181,6 +181,6 @@ def main():
             time.sleep(60)
 
 if __name__ == "__main__":
-    logger = setup_logging('trainer')
+    logger = setup_logging('Trainer', 'trainer.log')
     logger.info("BugzyEngine Trainer v4.0 with Hybrid Training started.")
     main()
