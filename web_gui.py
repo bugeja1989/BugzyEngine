@@ -21,6 +21,7 @@ import os
 import json
 import threading
 import time
+import random
 from datetime import datetime
 
 from neural_network.src.engine_utils import alpha_beta_search
@@ -55,6 +56,46 @@ model = ChessNet().to(device)
 model_loaded = False
 model_last_modified = 0
 model_version = 0
+
+# --- Opening Book ---
+OPENING_BOOK = [
+    # Italian Game - Aggressive
+    ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6", "d2d4", "e5d4", "c3d4"],
+    # King's Gambit - Ultra Aggressive
+    ["e2e4", "e7e5", "f2f4", "e5f4", "g1f3", "g7g5", "h2h4", "g5g4", "f3e5", "b8c6", "e5c6"],
+    # Scotch Game - Sharp
+    ["e2e4", "e7e5", "g1f3", "b8c6", "d2d4", "e5d4", "f3d4", "g8f6", "d4c6", "b7c6", "e4e5"],
+    # Sicilian Dragon - Attacking
+    ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "g7g6", "c1e3"],
+    # King's Indian Attack
+    ["e2e4", "e7e5", "g1f3", "b8c6", "d2d3", "d7d5", "b1d2", "g8f6", "g2g3", "f8c5", "f1g2"],
+    # Vienna Game - Aggressive
+    ["e2e4", "e7e5", "b1c3", "g8f6", "f2f4", "d7d5", "f4e5", "f6e4", "g1f3", "f8c5", "d2d4"],
+    # Ruy Lopez - Marshall Attack
+    ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "f8e7", "f1e1"],
+    # Alekhine Defense - Aggressive
+    ["e2e4", "g8f6", "e4e5", "f6d5", "d2d4", "d7d6", "g1f3", "c8g4", "f1e2", "e7e6", "e1g1"],
+]
+
+def get_opening_move(move_count):
+    """Get a move from the opening book if within first 10-12 moves."""
+    if move_count >= 12:  # After 12 moves, use engine
+        return None
+    
+    # Pick a random opening if this is move 0
+    if move_count == 0:
+        global current_opening
+        current_opening = random.choice(OPENING_BOOK)
+    
+    # Return the move from the selected opening
+    if move_count < len(current_opening):
+        try:
+            return chess.Move.from_uci(current_opening[move_count])
+        except:
+            return None
+    return None
+
+current_opening = None
 
 def add_log(message):
     """Add a log entry with timestamp."""
@@ -129,8 +170,10 @@ def get_stockfish_move(elo_level, time_limit=0.1):
         return None
     
     try:
+        # Clamp ELO to valid Stockfish range (1320-3200)
+        clamped_elo = max(1320, min(3200, elo_level))
         # Set ELO limit
-        stockfish_engine.configure({"UCI_LimitStrength": True, "UCI_Elo": elo_level})
+        stockfish_engine.configure({"UCI_LimitStrength": True, "UCI_Elo": clamped_elo})
         # Play from current board position
         result = stockfish_engine.play(board.copy(), chess.engine.Limit(time=time_limit))
         # Validate move is legal
@@ -199,7 +242,10 @@ def get_move_suggestions(num_suggestions=3):
 # --- Simulation Mode ---
 def run_simulation():
     """Run BugzyEngine vs Stockfish simulation."""
-    global simulation_running, board, move_history
+    global simulation_running, board, move_history, current_opening
+    
+    # Reset opening book for new game
+    current_opening = None
     
     add_log(f"🎮 Simulation started: BugzyEngine vs Stockfish (ELO {stockfish_elo})")
     
@@ -210,7 +256,14 @@ def run_simulation():
         time.sleep(1)  # Delay for visualization
         
         try:
-            if board.turn == chess.WHITE:
+            # Try opening book first (first 12 moves)
+            opening_move = get_opening_move(move_count)
+            
+            if opening_move and opening_move in board.legal_moves:
+                # Use opening book move
+                move = opening_move
+                player_name = "Opening Book"
+            elif board.turn == chess.WHITE:
                 # BugzyEngine plays White
                 move = get_bugzy_move()
                 player_name = "BugzyEngine"
@@ -662,8 +715,9 @@ CYBERPUNK_HTML_V5 = """
                 </div>
                 
                 <h2>🎯 STOCKFISH ELO</h2>
-                <input type="range" id="stockfish-elo" min="500" max="3200" step="500" value="2000" oninput="updateElo()">
+                <input type="range" id="stockfish-elo" min="1320" max="3200" step="100" value="2000" oninput="updateElo()">
                 <div class="elo-display" id="elo-display">ELO: 2000</div>
+                <div style="font-size: 0.7em; color: #00ff41; margin-top: 5px;">⚠️ Min: 1320 (Stockfish limit)</div>
                 
                 <h2 style="margin-top: 20px;">⚙️ CONTROLS</h2>
                 <button class="btn" onclick="resetGame()">🔄 NEW GAME</button>
