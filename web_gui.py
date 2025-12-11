@@ -131,8 +131,14 @@ def get_stockfish_move(elo_level, time_limit=0.1):
     try:
         # Set ELO limit
         stockfish_engine.configure({"UCI_LimitStrength": True, "UCI_Elo": elo_level})
-        result = stockfish_engine.play(board, chess.engine.Limit(time=time_limit))
-        return result.move
+        # Play from current board position
+        result = stockfish_engine.play(board.copy(), chess.engine.Limit(time=time_limit))
+        # Validate move is legal
+        if result.move and result.move in board.legal_moves:
+            return result.move
+        else:
+            add_log(f"⚠️ Stockfish returned illegal move: {result.move}")
+            return None
     except Exception as e:
         add_log(f"⚠️ Stockfish error: {e}")
         return None
@@ -140,8 +146,21 @@ def get_stockfish_move(elo_level, time_limit=0.1):
 def get_bugzy_move():
     """Get move from BugzyEngine."""
     load_model()  # Hot-reload check
-    _, move = alpha_beta_search(board, depth=3, model=model if model_loaded else None)
-    return move
+    try:
+        _, move = alpha_beta_search(board.copy(), depth=3, model=model if model_loaded else None)
+        # Validate move is legal
+        if move and move in board.legal_moves:
+            return move
+        else:
+            add_log(f"⚠️ BugzyEngine returned illegal move: {move}")
+            # Fallback: return a random legal move
+            legal_moves = list(board.legal_moves)
+            return legal_moves[0] if legal_moves else None
+    except Exception as e:
+        add_log(f"⚠️ BugzyEngine error: {e}")
+        # Fallback: return a random legal move
+        legal_moves = list(board.legal_moves)
+        return legal_moves[0] if legal_moves else None
 
 def get_move_suggestions(num_suggestions=3):
     """Get top move suggestions with evaluations."""
@@ -184,25 +203,34 @@ def run_simulation():
     
     add_log(f"🎮 Simulation started: BugzyEngine vs Stockfish (ELO {stockfish_elo})")
     
-    while simulation_running and not board.is_game_over():
+    move_count = 0
+    max_moves = 200  # Prevent infinite games
+    
+    while simulation_running and not board.is_game_over() and move_count < max_moves:
         time.sleep(1)  # Delay for visualization
         
-        if board.turn == chess.WHITE:
-            # BugzyEngine plays White
-            move = get_bugzy_move()
-            player_name = "BugzyEngine"
-        else:
-            # Stockfish plays Black
-            move = get_stockfish_move(stockfish_elo)
-            player_name = f"Stockfish-{stockfish_elo}"
-        
-        if move and move in board.legal_moves:
-            san_move = board.san(move)
-            board.push(move)
-            move_history.append({"move": san_move, "player": player_name})
-            add_log(f"{'⚪' if board.turn == chess.BLACK else '⚫'} {player_name}: {san_move}")
-        else:
-            add_log("⚠️ Invalid move in simulation")
+        try:
+            if board.turn == chess.WHITE:
+                # BugzyEngine plays White
+                move = get_bugzy_move()
+                player_name = "BugzyEngine"
+            else:
+                # Stockfish plays Black
+                move = get_stockfish_move(stockfish_elo)
+                player_name = f"Stockfish-{stockfish_elo}"
+            
+            if move and move in board.legal_moves:
+                san_move = board.san(move)
+                board.push(move)
+                move_history.append({"move": san_move, "player": player_name})
+                add_log(f"{'⚪' if board.turn == chess.BLACK else '⚫'} {player_name}: {san_move}")
+                move_count += 1
+            else:
+                add_log(f"⚠️ Invalid move in simulation: {move}")
+                add_log(f"Board FEN: {board.fen()}")
+                break
+        except Exception as e:
+            add_log(f"❌ Simulation error: {e}")
             break
     
     if board.is_game_over():
