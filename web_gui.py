@@ -996,19 +996,21 @@ CYBERPUNK_HTML_V5 = """
         }
         
         // Initialize when DOM and libraries are ready
-        document.addEventListener('DOMContentLoaded', function() {
+        function initializeBoard() {
             // Wait for libraries to load
             if (typeof Chess === 'undefined' || typeof Chessboard === 'undefined') {
-                console.error('Chess libraries not loaded!');
-                setTimeout(arguments.callee, 100);
+                console.error('Chess libraries not loaded yet, retrying...');
+                setTimeout(initializeBoard, 100);
                 return;
             }
+            
+            console.log('Initializing chessboard...');
             
             // Initialize chess game
             game = new Chess();
             
             // Initialize chessboard
-            let config = {
+            var config = {
                 draggable: true,
                 position: 'start',
                 onDragStart: onDragStart,
@@ -1018,12 +1020,16 @@ CYBERPUNK_HTML_V5 = """
             };
             board = Chessboard('board', config);
             
+            console.log('Chessboard initialized!');
+            
             updateStatus();
             updateStats();  // Initial call
             setInterval(updateStats, 2000);
             setInterval(updateLogs, 2000);
             setInterval(updateBoard, 1000);
-        });
+        }
+        
+        document.addEventListener('DOMContentLoaded', initializeBoard);
     </script>
 </body>
 </html>
