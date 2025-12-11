@@ -434,36 +434,49 @@ CYBERPUNK_HTML_V5 = """
             font-family: 'Courier New', monospace;
             background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
             color: #00ffff;
-            padding: 20px;
+            padding: 10px;
+            overflow: hidden;
+            height: 100vh;
         }
-        .container { max-width: 1800px; margin: 0 auto; }
+        .container { 
+            max-width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
         h1 {
             text-align: center;
-            font-size: 3em;
+            font-size: 2em;
             text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
-            margin-bottom: 20px;
-            letter-spacing: 5px;
+            margin-bottom: 10px;
+            letter-spacing: 3px;
         }
         .main-grid {
             display: grid;
-            grid-template-columns: 350px 1fr 400px;
-            gap: 20px;
+            grid-template-columns: 280px 1fr 350px;
+            gap: 15px;
+            flex: 1;
+            overflow: hidden;
         }
         .panel {
             background: rgba(0, 0, 0, 0.7);
             border: 2px solid #00ffff;
             border-radius: 10px;
-            padding: 20px;
+            padding: 15px;
             box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
         h2 {
             color: #ff0055;
             text-shadow: 0 0 10px #ff0055;
-            margin-bottom: 15px;
-            font-size: 1.5em;
+            margin-bottom: 10px;
+            font-size: 1.1em;
         }
         #board {
-            width: 600px;
+            width: 100%;
+            max-width: 600px;
             margin: 0 auto;
         }
         .btn {
@@ -562,10 +575,10 @@ CYBERPUNK_HTML_V5 = """
         .logs {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #00ff88;
-            padding: 15px;
-            height: 400px;
+            padding: 10px;
+            flex: 1;
             overflow-y: auto;
-            font-size: 0.9em;
+            font-size: 0.75em;
             color: #00ff88;
             border-radius: 5px;
         }
@@ -577,10 +590,11 @@ CYBERPUNK_HTML_V5 = """
         .move-history {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid #ff0055;
-            padding: 15px;
-            height: 200px;
+            padding: 10px;
+            height: 150px;
             overflow-y: auto;
             border-radius: 5px;
+            font-size: 0.85em;
         }
         .game-status {
             text-align: center;
@@ -882,7 +896,7 @@ CYBERPUNK_HTML_V5 = """
             onDragStart: onDragStart,
             onDrop: onDrop,
             onSnapEnd: onSnapEnd,
-            pieceTheme: 'https://commons.wikimedia.org/wiki/Special:FilePath/{piece}.svg'
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         };
         board = Chessboard('board', config);
         
