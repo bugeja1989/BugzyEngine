@@ -56,6 +56,13 @@ model_loaded = False
 model_last_modified = 0
 model_version = 0
 
+def add_log(message):
+    """Add a log entry with timestamp."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    engine_logs.append(f"[{timestamp}] {message}")
+    if len(engine_logs) > 50:
+        engine_logs.pop(0)
+
 def load_model():
     """Load or reload the model if it has been updated."""
     global model, model_loaded, model_last_modified, model_version
@@ -115,13 +122,6 @@ def count_trained_positions():
             except:
                 pass
     return count
-
-def add_log(message):
-    """Add a log entry with timestamp."""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    engine_logs.append(f"[{timestamp}] {message}")
-    if len(engine_logs) > 50:
-        engine_logs.pop(0)
 
 def get_stockfish_move(elo_level, time_limit=0.1):
     """Get move from Stockfish at specified ELO."""
