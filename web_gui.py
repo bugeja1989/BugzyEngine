@@ -24,18 +24,44 @@ move_history = []
 engine_logs = []
 game_start_time = None
 
-# --- Load Model ---
+# --- Hot-Reload Model System ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "bugzy_model.pth")
 DATA_PATH = os.path.join(SCRIPT_DIR, "data", "processed")
 model = ChessNet().to(device)
 model_loaded = False
+model_last_modified = 0
+model_version = 0
 
-if os.path.exists(MODEL_PATH):
-    print(f"Loading model from {MODEL_PATH}")
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.eval()
-    model_loaded = True
+def load_model():
+    """Load or reload the model if it has been updated."""
+    global model, model_loaded, model_last_modified, model_version
+    
+    if not os.path.exists(MODEL_PATH):
+        return False
+    
+    current_mtime = os.path.getmtime(MODEL_PATH)
+    
+    # Check if model has been updated
+    if current_mtime > model_last_modified:
+        try:
+            model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+            model.eval()
+            model_loaded = True
+            model_last_modified = current_mtime
+            model_version += 1
+            add_log(f"🔄 Model reloaded! Version: {model_version}")
+            print(f"[HOT-RELOAD] Model updated to version {model_version}")
+            return True
+        except Exception as e:
+            print(f"[HOT-RELOAD] Error loading model: {e}")
+            return False
+    
+    return model_loaded
+
+# Initial model load
+if load_model():
+    print(f"Model loaded successfully. Version: {model_version}")
 else:
     print("No model found. The engine will play randomly.")
 
@@ -107,7 +133,8 @@ def api_move():
                 "san_move": san_move
             })
         
-        # Engine's turn
+        # Engine's turn - check for model updates first!
+        load_model()  # Hot-reload if model was updated
         add_log("🤖 BugzyEngine thinking...")
         _, engine_move = alpha_beta_search(board, depth=3, model=model if model_loaded else None)
         
@@ -157,10 +184,14 @@ def api_stats():
         seconds = int(elapsed.total_seconds() % 60)
         game_time = f"{minutes:02d}:{seconds:02d}"
     
+    # Check for model updates
+    load_model()
+    
     return jsonify({
         "positions_trained": positions_trained,
         "gpu_status": gpu_status,
         "model_loaded": model_loaded,
+        "model_version": model_version,
         "move_count": len(move_history),
         "game_time": game_time
     })
@@ -416,6 +447,10 @@ CYBERPUNK_HTML = """
                         <div class="stat-label">DEVICE</div>
                         <div class="stat-value" id="device">MPS</div>
                     </div>
+                    <div class="stat-box">
+                        <div class="stat-label">MODEL VERSION</div>
+                        <div class="stat-value" id="model-version">0</div>
+                    </div>
                 </div>
                 
                 <h2 style="margin-top: 20px;">📜 MOVE HISTORY</h2>
@@ -503,6 +538,7 @@ CYBERPUNK_HTML = """
                         data.model_loaded ? 'LOADED' : 'RANDOM';
                     document.getElementById('move-count').textContent = data.move_count;
                     document.getElementById('game-time').textContent = data.game_time;
+                    document.getElementById('model-version').textContent = data.model_version;
                 });
         }
         

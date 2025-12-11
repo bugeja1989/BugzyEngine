@@ -13,6 +13,11 @@ import torch.nn as nn
 import torch.optim as optim
 from neural_network.src.engine_utils import board_to_tensor
 from config import GPU_DEVICE, LEARNING_RATE, BATCH_SIZE, EPOCHS
+
+# Fast training mode for continuous learning
+FAST_TRAINING = True  # Enable fast training cycles
+FAST_BATCH_SIZE = 128  # Smaller batches for faster iterations
+FAST_EPOCHS = 3  # Fewer epochs for faster cycles
 from logging_config import setup_logging
 
 # Use relative paths
@@ -80,14 +85,19 @@ def train_model(model, data_path):
     X = torch.cat(positions)
     y = torch.FloatTensor(outcomes).unsqueeze(1).to(device)
 
+    # Use fast training mode if enabled
+    batch_size = FAST_BATCH_SIZE if FAST_TRAINING else BATCH_SIZE
+    epochs = FAST_EPOCHS if FAST_TRAINING else EPOCHS
+    
     dataset = torch.utils.data.TensorDataset(X, y)
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size=256, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     model.train()
-    for epoch in range(EPOCHS):
+    logger.info(f"🚀 Fast Training Mode: {FAST_TRAINING} | Batch Size: {batch_size} | Epochs: {epochs}")
+    for epoch in range(epochs):
         running_loss = 0.0
         for i, data in enumerate(train_loader, 0):
             inputs, labels = data
@@ -101,11 +111,23 @@ def train_model(model, data_path):
             running_loss += loss.item()
         logger.info(f"Epoch {epoch + 1}, Loss: {running_loss / len(train_loader)}")
 
-    # Atomic save
+    # Atomic save with version tracking
     temp_path = MODEL_PATH + ".tmp"
     torch.save(model.state_dict(), temp_path)
     os.rename(temp_path, MODEL_PATH)
-    logger.info(f"Model saved to {MODEL_PATH}")
+    
+    # Update version number
+    version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
+    try:
+        with open(version_file, "r") as f:
+            version = int(f.read().strip()) + 1
+    except:
+        version = 1
+    with open(version_file, "w") as f:
+        f.write(str(version))
+    
+    logger.info(f"✅ Model saved to {MODEL_PATH} (Version {version})")
+    logger.info(f"⚡ Model is now live and will be hot-reloaded by the GUI!")
 
 def main():
     """Main function for the trainer."""
