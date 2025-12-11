@@ -246,19 +246,24 @@ def run_simulation():
         time.sleep(1)  # Delay for visualization
         
         try:
-            # Try opening book first
-            opening_move = get_opening_move()
+            # Determine if it's BugzyEngine's turn based on selected color
+            bugzy_turn = (player_color == "white" and board.turn == chess.WHITE) or \
+                        (player_color == "black" and board.turn == chess.BLACK)
             
-            if opening_move and opening_move in board.legal_moves:
-                # Use opening book move
-                move = opening_move
-                player_name = "Opening Book"
-            elif board.turn == chess.WHITE:
-                # BugzyEngine plays White
-                move = get_bugzy_move()
-                player_name = "BugzyEngine"
+            if bugzy_turn:
+                # BugzyEngine's turn - try opening book first
+                opening_move = get_opening_move()
+                
+                if opening_move and opening_move in board.legal_moves:
+                    # Use opening book move
+                    move = opening_move
+                    player_name = "BugzyEngine (Book)"
+                else:
+                    # Opening book exhausted, use neural network
+                    move = get_bugzy_move()
+                    player_name = "BugzyEngine"
             else:
-                # Stockfish plays Black
+                # Stockfish's turn - always uses its own engine (no book)
                 move = get_stockfish_move(stockfish_elo)
                 player_name = f"Stockfish-{stockfish_elo}"
             
@@ -912,8 +917,23 @@ CYBERPUNK_HTML_V5 = """
             fetch('/api/pgn')
             .then(response => response.json())
             .then(data => {
-                navigator.clipboard.writeText(data.pgn);
-                alert('PGN copied to clipboard!');
+                // Try modern clipboard API first
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(data.pgn)
+                        .then(() => {
+                            alert('✅ PGN copied to clipboard!');
+                        })
+                        .catch(err => {
+                            // Fallback: show PGN in alert for manual copy
+                            alert('⚠️ Clipboard access denied. Here is the PGN:\n\n' + data.pgn);
+                        });
+                } else {
+                    // Fallback for older browsers
+                    alert('📋 PGN:\n\n' + data.pgn);
+                }
+            })
+            .catch(err => {
+                alert('❌ Error generating PGN: ' + err);
             });
         }
         
