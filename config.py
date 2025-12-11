@@ -2,29 +2,39 @@
 # -*- coding: utf-8 -*-
 
 """
-config.py: Centralized configuration for BugzyEngine.
+config.py: Centralized configuration for BugzyEngine v5.2
 """
 
-# --- System --- 
+# --- System ---
 WEB_PORT = 9443
-GPU_DEVICE = "mps"  # "mps" for Apple Silicon, "cuda" for NVIDIA, "cpu" for CPU-only
+GPU_DEVICE = "mps"
 
-# --- Collector --- 
+# --- Collector ---
 CHESS_COM_API_BASE_URL = "https://api.chess.com/pub"
 HISTORICAL_LEGENDS = [
     "Mikhail-Tal", "Bobby-Fischer", "Garry-Kasparov", "Paul-Morphy",
     "Alexander-Alekhine", "Mikhail-Botvinnik", "Jose-Raul-Capablanca",
     "Leonid-Stein", "David-Bronstein", "Judit-Polgar", "Magnus-Carlsen", "Hikaru"
 ]
-COLLECTOR_CONCURRENCY = 20  # Number of players to process in parallel
-ELO_THRESHOLD = 2600  # Minimum ELO for titled players
-TOP_N_PLAYERS = 100 # Number of top players to fetch from leaderboards/titled lists
+COLLECTOR_CONCURRENCY = 20
+ELO_THRESHOLD = 2600
+TOP_N_PLAYERS = 100
 
-# --- Filtering ---
-MIN_COMPLEXITY_SCORE = 15 # (captures + checks)
-MIN_SACRIFICES = 1
-MIN_DRAW_COMPLEXITY = 25
-MIN_ACCURACY_FOR_DRAW = 0.95 # Placeholder, as accuracy is not in PGN
+# --- Two-Tier Filtering (v5.2) ---
+
+# Tier 1: Basic Quality Filter (applied in collector)
+# Goal: Get a large volume of decent-quality games for initial training
+# Pass Rate: ~70% of games
+TIER1_MIN_MOVES = 10
+TIER1_VALID_TERMINATIONS = ["won by resignation", "won on time", "won by checkmate", "game drawn"]
+
+# Tier 2: Attacking Style Filter (applied in trainer, configurable)
+# Goal: Select for aggressive, tactical, "Bugzy" style games
+# Pass Rate: ~40% of Tier 1 games
+TIER2_ENABLED = True
+TIER2_MIN_COMPLEXITY = 8  # (captures + checks)
+TIER2_MIN_SACRIFICES = 0  # Allow games without sacrifices
+TIER2_MIN_DRAW_COMPLEXITY = 15
 
 # --- Trainer ---
 LEARNING_RATE = 0.001
