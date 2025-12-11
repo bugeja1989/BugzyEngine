@@ -86,6 +86,10 @@ async def process_player(session, player_username):
                 continue
 
             try:
+                if "pgn" not in game_data:
+                    mark_game_processed(game_id, player_username)
+                    continue
+                    
                 pgn_text = game_data["pgn"]
                 pgn_io = io.StringIO(pgn_text)
                 game = chess.pgn.read_game(pgn_io)
@@ -95,8 +99,11 @@ async def process_player(session, player_username):
                         game.accept(exporter)
                     mark_game_processed(game_id, player_username)
                     games_collected += 1
+                else:
+                    mark_game_processed(game_id, player_username)
             except Exception as e:
                 logger.error(f"Error processing game {game_id}: {e}")
+                mark_game_processed(game_id, player_username)
 
     logger.info(f"✅ Collected {games_collected} new games for {player_username}")
 
