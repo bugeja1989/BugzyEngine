@@ -1,9 +1,6 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-"""
-process2_trainer.py: Continuous trainer for the BugzyEngine.
-"""
+'''
+process2_trainer.py: Continuous trainer for the BugzyEngine with parallel batch processing and caching.
+'''
 
 import os
 import time
@@ -11,23 +8,25 @@ import chess.pgn
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
+from multiprocessing import Pool, cpu_count
 from neural_network.src.engine_utils import board_to_tensor
 from config import GPU_DEVICE, LEARNING_RATE, BATCH_SIZE, EPOCHS
-
-# Fast training mode for continuous learning
-FAST_TRAINING = True  # Enable fast training cycles
-FAST_BATCH_SIZE = 128  # Smaller batches for faster iterations
-FAST_EPOCHS = 3  # Fewer epochs for faster cycles
 from logging_config import setup_logging
 
-# Use relative paths
+# --- Configuration ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(SCRIPT_DIR, "data", "raw_pgn")
-PROCESSED_PATH = os.path.join(SCRIPT_DIR, "data", "processed")
+CACHE_PATH = os.path.join(SCRIPT_DIR, "data", "cache")
 MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "bugzy_model.pth")
+
+# Hybrid Training Settings
+BATCH_PROCESS_SIZE = 1000  # Process 1000 files at a time
+NUM_WORKERS = cpu_count()  # Use all available CPU cores
 
 device = torch.device(GPU_DEVICE)
 
+# --- Model Definition ---
 class ChessNet(nn.Module):
     def __init__(self):
         super(ChessNet, self).__init__()
@@ -46,58 +45,78 @@ class ChessNet(nn.Module):
         x = self.tanh(self.fc2(x))
         return x
 
-def train_model(model, data_path):
-    """Trains the neural network model."""
+# --- Tier 1: Smart Caching & Parallel Processing ---
+def process_pgn_file(file_path):
+    '''Processes a single PGN file and returns positions and outcomes.'''
+    cache_file = os.path.join(CACHE_PATH, os.path.basename(file_path) + ".npz")
+    
+    # Use cache if it exists
+    if os.path.exists(cache_file):
+        try:
+            data = np.load(cache_file)
+            return list(data['positions']), list(data['outcomes'])
+        except Exception as e:
+            # logger.warning(f"Corrupt cache file {cache_file}, re-processing. Error: {e}")
+            pass
+
+    # Process PGN if not cached
     positions = []
     outcomes = []
-    logger.info(f"Scanning for PGN files in {data_path}")
-    for pgn_file in os.listdir(data_path):
-        if pgn_file.endswith(".pgn"):
-            logger.info(f"Processing {pgn_file}...")
-            with open(os.path.join(data_path, pgn_file)) as f:
-                while True:
-                    try:
-                        game = chess.pgn.read_game(f)
-                        if game is None:
-                            break
-                        result = game.headers.get("Result", "*")
-                        if result == "1-0":
-                            outcome = 1.0
-                        elif result == "0-1":
-                            outcome = -1.0
-                        else:
-                            continue # Skip draws and unfinished games
+    try:
+        with open(file_path, 'r', encoding='utf-8') as pgn:
+            game = chess.pgn.read_game(pgn)
+            if not game:
+                return [], []
 
-                        board = game.board()
-                        for move in game.mainline_moves():
-                            board.push(move)
-                            positions.append(board_to_tensor(board.copy()))
-                            outcomes.append(outcome)
-                    except Exception as e:
-                        logger.warning(f"Skipping a malformed game in {pgn_file}: {e}")
-                        continue
+            result = game.headers.get("Result", "*")
+            if result == "1-0": outcome = 1.0
+            elif result == "0-1": outcome = -1.0
+            else: outcome = 0.0
 
-    if not positions:
-        logger.info("No new training data found.")
+            board = game.board()
+            for move in game.mainline_moves():
+                board.push(move)
+                positions.append(board_to_tensor(board.copy()).numpy())
+                outcomes.append(outcome)
+        
+        # Save to cache
+        np.savez_compressed(cache_file, positions=np.array(positions), outcomes=np.array(outcomes))
+        return positions, outcomes
+
+    except Exception as e:
+        # logger.warning(f"Skipping malformed PGN {file_path}: {e}")
+        return [], []
+
+# --- Tier 2: Batch Training ---
+def train_on_batch(model, file_batch):
+    '''Trains the model on a batch of PGN files in parallel.'''
+    logger.info(f"🧠 Processing batch of {len(file_batch)} files with {NUM_WORKERS} workers...")
+    
+    with Pool(NUM_WORKERS) as p:
+        results = p.map(process_pgn_file, file_batch)
+
+    all_positions = []
+    all_outcomes = []
+    for positions, outcomes in results:
+        all_positions.extend(positions)
+        all_outcomes.extend(outcomes)
+
+    if not all_positions:
+        logger.info("No new training data in this batch.")
         return
 
-    logger.info(f"Training on {len(positions)} new positions.")
-    X = torch.cat(positions)
-    y = torch.FloatTensor(outcomes).unsqueeze(1).to(device)
+    logger.info(f"🚀 Training on {len(all_positions):,} new positions from this batch.")
+    X = torch.from_numpy(np.array(all_positions)).to(device)
+    y = torch.FloatTensor(all_outcomes).unsqueeze(1).to(device)
 
-    # Use fast training mode if enabled
-    batch_size = FAST_BATCH_SIZE if FAST_TRAINING else BATCH_SIZE
-    epochs = FAST_EPOCHS if FAST_TRAINING else EPOCHS
-    
     dataset = torch.utils.data.TensorDataset(X, y)
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     model.train()
-    logger.info(f"🚀 Fast Training Mode: {FAST_TRAINING} | Batch Size: {batch_size} | Epochs: {epochs}")
-    for epoch in range(epochs):
+    for epoch in range(EPOCHS):
         running_loss = 0.0
         for i, data in enumerate(train_loader, 0):
             inputs, labels = data
@@ -109,58 +128,59 @@ def train_model(model, data_path):
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-        logger.info(f"Epoch {epoch + 1}, Loss: {running_loss / len(train_loader)}")
+        logger.info(f"  Epoch {epoch + 1}/{EPOCHS}, Loss: {running_loss / len(train_loader):.6f}")
 
     # Atomic save with version tracking
     temp_path = MODEL_PATH + ".tmp"
     torch.save(model.state_dict(), temp_path)
     os.rename(temp_path, MODEL_PATH)
     
-    # Update version number
     version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
     try:
-        with open(version_file, "r") as f:
-            version = int(f.read().strip()) + 1
-    except:
-        version = 1
-    with open(version_file, "w") as f:
-        f.write(str(version))
+        with open(version_file, "r") as f: version = int(f.read().strip()) + 1
+    except: version = 1
+    with open(version_file, "w") as f: f.write(str(version))
     
-    logger.info(f"✅ Model saved to {MODEL_PATH} (Version {version})")
-    logger.info(f"⚡ Model is now live and will be hot-reloaded by the GUI!")
+    logger.info(f"✅ Model v{version} saved! Now live in the GUI.")
 
+# --- Main Loop ---
 def main():
-    """Main function for the trainer."""
+    '''Main function for the trainer.'''
     os.makedirs(DATA_PATH, exist_ok=True)
-    os.makedirs(PROCESSED_PATH, exist_ok=True)
+    os.makedirs(CACHE_PATH, exist_ok=True)
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
 
     model = ChessNet().to(device)
     if os.path.exists(MODEL_PATH):
-        logger.info(f"Loading existing model from {MODEL_PATH}")
         model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    
-    logger.info("BugzyEngine Trainer started.")
-    logger.info(f"Using device: {device}")
+        logger.info("Loaded existing model.")
+
+    processed_files = set()
 
     while True:
-        logger.info("Watching for new PGN files...")
-        found_new_files = False
-        pgn_files_in_dir = [f for f in os.listdir(DATA_PATH) if f.endswith(".pgn")]
-        if pgn_files_in_dir:
-            logger.info(f"Found {len(pgn_files_in_dir)} PGN files. Starting training cycle.")
-            train_model(model, DATA_PATH)
-            # Move all processed files
-            for pgn_file in pgn_files_in_dir:
-                src_path = os.path.join(DATA_PATH, pgn_file)
-                dest_path = os.path.join(PROCESSED_PATH, pgn_file)
-                shutil.move(src_path, dest_path)
-            logger.info(f"Moved {len(pgn_files_in_dir)} processed files to {PROCESSED_PATH}")
-        else:
-            time.sleep(60) # Wait for a minute before checking again
+        logger.info("Scanning for new PGN files...")
+        try:
+            all_pgn_files = {os.path.join(DATA_PATH, f) for f in os.listdir(DATA_PATH) if f.endswith(".pgn")}
+            new_files = sorted(list(all_pgn_files - processed_files))
 
-logger = setup_logging("Trainer", "trainer.log")
+            if not new_files:
+                logger.info("No new games found. Waiting...")
+                time.sleep(30)
+                continue
+
+            logger.info(f"🔥 Found {len(new_files):,} new PGN files. Starting training cycles...")
+
+            for i in range(0, len(new_files), BATCH_PROCESS_SIZE):
+                batch = new_files[i:i + BATCH_PROCESS_SIZE]
+                train_on_batch(model, batch)
+                processed_files.update(batch)
+                logger.info(f"Completed batch {i // BATCH_PROCESS_SIZE + 1}/{(len(new_files) + BATCH_PROCESS_SIZE - 1) // BATCH_PROCESS_SIZE}. Model is getting smarter!")
+
+        except Exception as e:
+            logger.error(f"An error occurred in the training loop: {e}", exc_info=True)
+            time.sleep(60)
 
 if __name__ == "__main__":
-    import shutil
+    logger = setup_logging('trainer')
+    logger.info("BugzyEngine Trainer v4.0 with Hybrid Training started.")
     main()
