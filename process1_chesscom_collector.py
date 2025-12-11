@@ -24,19 +24,27 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "data", "raw_pgn")
 DB_PATH = os.path.join(SCRIPT_DIR, "data", "collector.db")
 
+def ensure_db_dir():
+    """Ensure the database directory exists."""
+    db_dir = os.path.dirname(DB_PATH)
+    os.makedirs(db_dir, exist_ok=True)
+
 def init_db():
+    ensure_db_dir()
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS processed_games (game_id TEXT PRIMARY KEY, player TEXT, downloaded_at TIMESTAMP)")
         conn.commit()
 
 def is_game_processed(game_id):
+    ensure_db_dir()
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("SELECT 1 FROM processed_games WHERE game_id = ?", (game_id,))
         return c.fetchone() is not None
 
 def mark_game_processed(game_id, player):
+    ensure_db_dir()
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("INSERT OR IGNORE INTO processed_games VALUES (?, ?, CURRENT_TIMESTAMP)", (game_id, player))
