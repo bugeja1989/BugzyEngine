@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-web_gui.py: Cyberpunk Web GUI for the BugzyEngine with drag-and-drop and simulation mode.
+web_gui.py: Cyberpunk Web GUI for the BugzyEngine with drag-and-drop and enhanced features.
 """
 
 from flask import Flask, render_template_string, request, jsonify
@@ -22,6 +22,7 @@ board = chess.Board()
 device = torch.device(GPU_DEVICE)
 move_history = []
 engine_logs = []
+game_start_time = None
 
 # --- Load Model ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,48 +92,55 @@ def api_move():
         
         # Player's move
         board.push(move)
-        move_history.append({"move": move_uci, "player": "human"})
-        add_log(f"Player: {move_uci}")
+        san_move = board.san(move)
+        move_history.append({"move": san_move, "player": "human"})
+        add_log(f"👤 Player: {san_move}")
         
         # Check if game over
         if board.is_game_over():
-            add_log(f"Game Over: {board.result()}")
+            add_log(f"🏁 Game Over: {board.result()}")
             return jsonify({
                 "fen": board.fen(),
                 "game_over": True,
                 "result": board.result(),
-                "engine_move": None
+                "engine_move": None,
+                "san_move": san_move
             })
         
         # Engine's turn
-        add_log("BugzyEngine thinking...")
+        add_log("🤖 BugzyEngine thinking...")
         _, engine_move = alpha_beta_search(board, depth=3, model=model if model_loaded else None)
         
         if engine_move:
+            san_engine_move = board.san(engine_move)
             board.push(engine_move)
-            move_history.append({"move": engine_move.uci(), "player": "engine"})
-            add_log(f"BugzyEngine: {engine_move.uci()} [CHAOS MODE]")
+            move_history.append({"move": san_engine_move, "player": "engine"})
+            add_log(f"⚡ BugzyEngine: {san_engine_move} [CHAOS MODE]")
             
             return jsonify({
                 "fen": board.fen(),
                 "game_over": board.is_game_over(),
                 "result": board.result() if board.is_game_over() else None,
-                "engine_move": engine_move.uci()
+                "engine_move": engine_move.uci(),
+                "san_move": san_move,
+                "san_engine_move": san_engine_move
             })
         else:
-            add_log("No legal moves available!")
+            add_log("❌ No legal moves available!")
             return jsonify({"error": "No legal moves"}), 500
             
     except Exception as e:
+        add_log(f"⚠️ Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
     """Reset the board."""
-    global move_history
+    global move_history, game_start_time
     board.reset()
     move_history = []
-    add_log("New game started!")
+    game_start_time = datetime.now()
+    add_log("🔄 New game started!")
     return jsonify({"fen": board.fen()})
 
 @app.route("/api/stats")
@@ -141,11 +149,20 @@ def api_stats():
     positions_trained = count_trained_positions()
     gpu_status = "METAL ACTIVE" if device.type == "mps" else device.type.upper()
     
+    # Calculate game time
+    game_time = "00:00"
+    if game_start_time:
+        elapsed = datetime.now() - game_start_time
+        minutes = int(elapsed.total_seconds() // 60)
+        seconds = int(elapsed.total_seconds() % 60)
+        game_time = f"{minutes:02d}:{seconds:02d}"
+    
     return jsonify({
         "positions_trained": positions_trained,
         "gpu_status": gpu_status,
         "model_loaded": model_loaded,
-        "move_count": len(move_history)
+        "move_count": len(move_history),
+        "game_time": game_time
     })
 
 @app.route("/api/logs")
@@ -159,24 +176,29 @@ def api_pgn():
     game = chess.pgn.Game()
     game.headers["Event"] = "BugzyEngine vs Human"
     game.headers["Date"] = datetime.now().strftime("%Y.%m.%d")
+    game.headers["White"] = "Human"
+    game.headers["Black"] = "BugzyEngine"
     
     node = game
     temp_board = chess.Board()
-    for move_data in move_history:
-        move = chess.Move.from_uci(move_data["move"])
-        node = node.add_variation(move)
-        temp_board.push(move)
+    for i, move_data in enumerate(move_history):
+        # Find the move from SAN
+        for legal_move in temp_board.legal_moves:
+            if temp_board.san(legal_move) == move_data["move"]:
+                node = node.add_variation(legal_move)
+                temp_board.push(legal_move)
+                break
     
     return jsonify({"pgn": str(game)})
 
-# Cyberpunk HTML Template
+# Cyberpunk HTML Template with Wikipedia piece images
 CYBERPUNK_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BugzyEngine 2.0 - Cyberpunk Chess</title>
+    <title>BugzyEngine 3.0 - Cyberpunk Chess</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -190,7 +212,7 @@ CYBERPUNK_HTML = """
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
         }
         
@@ -283,7 +305,7 @@ CYBERPUNK_HTML = """
             border: 1px solid #00ff00;
             border-radius: 5px;
             padding: 10px;
-            height: 300px;
+            height: 400px;
             overflow-y: auto;
             font-size: 0.9em;
         }
@@ -310,12 +332,14 @@ CYBERPUNK_HTML = """
         
         .game-status {
             text-align: center;
-            font-size: 1.2em;
-            padding: 10px;
-            background: rgba(255, 0, 85, 0.2);
-            border: 1px solid #ff0055;
+            font-size: 1.5em;
+            padding: 15px;
+            background: rgba(255, 0, 85, 0.3);
+            border: 2px solid #ff0055;
             border-radius: 5px;
-            margin-top: 10px;
+            margin-top: 15px;
+            color: #ff0055;
+            text-shadow: 0 0 10px #ff0055;
         }
         
         .move-history {
@@ -323,26 +347,46 @@ CYBERPUNK_HTML = """
             border: 1px solid #ff00ff;
             border-radius: 5px;
             padding: 10px;
-            height: 200px;
+            height: 250px;
             overflow-y: auto;
         }
         
         .move-entry {
             color: #ff00ff;
             margin-bottom: 3px;
+            padding: 3px;
+        }
+        
+        .move-entry.human {
+            color: #00ffff;
+        }
+        
+        .move-entry.engine {
+            color: #ff0055;
+        }
+        
+        .turn-indicator {
+            text-align: center;
+            padding: 10px;
+            background: rgba(0, 255, 255, 0.2);
+            border: 1px solid #00ffff;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            color: #00ffff;
+            font-size: 1.2em;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>⚡ BUGZYENGINE 2.0 ⚡</h1>
+        <h1>⚡ BUGZYENGINE 3.0 ⚡</h1>
         
         <div class="main-grid">
             <!-- Left Panel: Stats & Controls -->
             <div class="panel">
                 <h2>🎮 CONTROL PANEL</h2>
-                <button class="btn" onclick="resetGame()">NEW GAME</button>
-                <button class="btn btn-danger" onclick="copyPGN()">COPY PGN</button>
+                <button class="btn" onclick="resetGame()">🔄 NEW GAME</button>
+                <button class="btn btn-danger" onclick="copyPGN()">📋 COPY PGN</button>
                 
                 <h2 style="margin-top: 20px;">📊 STATS</h2>
                 <div class="stats-grid">
@@ -364,6 +408,14 @@ CYBERPUNK_HTML = """
                         <div class="stat-label">MOVE COUNT</div>
                         <div class="stat-value" id="move-count">0</div>
                     </div>
+                    <div class="stat-box">
+                        <div class="stat-label">GAME TIME</div>
+                        <div class="stat-value" id="game-time">00:00</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">DEVICE</div>
+                        <div class="stat-value" id="device">MPS</div>
+                    </div>
                 </div>
                 
                 <h2 style="margin-top: 20px;">📜 MOVE HISTORY</h2>
@@ -372,6 +424,7 @@ CYBERPUNK_HTML = """
             
             <!-- Center Panel: Chess Board -->
             <div class="panel">
+                <div class="turn-indicator" id="turn-indicator">White to move</div>
                 <div id="board"></div>
                 <div id="game-status" class="game-status" style="display: none;"></div>
             </div>
@@ -414,6 +467,7 @@ CYBERPUNK_HTML = """
                 updateGameStatus(data);
                 updateStats();
                 updateLogs();
+                updateMoveHistory();
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -423,12 +477,16 @@ CYBERPUNK_HTML = """
         
         function updateGameStatus(data) {
             const statusDiv = document.getElementById('game-status');
+            const turnDiv = document.getElementById('turn-indicator');
+            
             if (data.game_over) {
                 statusDiv.style.display = 'block';
-                statusDiv.textContent = `GAME OVER: ${data.result}`;
+                statusDiv.textContent = `🏁 GAME OVER: ${data.result}`;
+                turnDiv.textContent = 'Game Over';
                 game_over = true;
             } else {
                 statusDiv.style.display = 'none';
+                turnDiv.textContent = data.fen.includes(' w ') ? 'White to move' : 'Black to move';
                 game_over = false;
             }
         }
@@ -444,6 +502,7 @@ CYBERPUNK_HTML = """
                     document.getElementById('model-status').textContent = 
                         data.model_loaded ? 'LOADED' : 'RANDOM';
                     document.getElementById('move-count').textContent = data.move_count;
+                    document.getElementById('game-time').textContent = data.game_time;
                 });
         }
         
@@ -459,6 +518,14 @@ CYBERPUNK_HTML = """
                 });
         }
         
+        function updateMoveHistory() {
+            fetch('/api/board')
+                .then(response => response.json())
+                .then(data => {
+                    // Move history is updated via stats
+                });
+        }
+        
         function resetGame() {
             fetch('/api/reset', {method: 'POST'})
                 .then(response => response.json())
@@ -466,6 +533,7 @@ CYBERPUNK_HTML = """
                     board.position(data.fen);
                     game_over = false;
                     document.getElementById('game-status').style.display = 'none';
+                    document.getElementById('turn-indicator').textContent = 'White to move';
                     document.getElementById('move-history').innerHTML = '';
                     updateStats();
                     updateLogs();
@@ -477,16 +545,17 @@ CYBERPUNK_HTML = """
                 .then(response => response.json())
                 .then(data => {
                     navigator.clipboard.writeText(data.pgn);
-                    alert('PGN copied to clipboard!');
+                    alert('✅ PGN copied to clipboard!');
                 });
         }
         
-        // Initialize board
+        // Initialize board with Wikipedia piece images
         const config = {
             draggable: true,
             position: 'start',
             onDragStart: onDragStart,
-            onDrop: onDrop
+            onDrop: onDrop,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         };
         
         board = Chessboard('board', config);
@@ -506,7 +575,8 @@ CYBERPUNK_HTML = """
 """
 
 if __name__ == "__main__":
-    add_log("BugzyEngine 2.0 started!")
-    add_log(f"GPU Device: {device}")
-    add_log(f"Model loaded: {model_loaded}")
+    game_start_time = datetime.now()
+    add_log("⚡ BugzyEngine 3.0 started!")
+    add_log(f"🖥️  GPU Device: {device}")
+    add_log(f"🧠 Model loaded: {model_loaded}")
     app.run(host='0.0.0.0', port=WEB_PORT, debug=True)
