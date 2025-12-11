@@ -29,8 +29,8 @@ MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "bugzy_model.pth")
 device = torch.device(GPU_DEVICE)
 
 NUM_WORKERS = 14
-BATCH_PROCESS_SIZE = 1000
-MAX_EMPTY_BATCHES = 5
+BATCH_PROCESS_SIZE = 10000  # Process 10,000 files per batch for faster training
+MAX_EMPTY_BATCHES = 3  # Reduced since batches are larger now
 
 class ChessNet(nn.Module):
     def __init__(self):
@@ -152,16 +152,41 @@ def train_on_batch(model, file_batch, batch_num, total_batches):
             running_loss += loss.item()
         logger.info(f"    Epoch {epoch + 1}/{EPOCHS}, Loss: {running_loss / len(train_loader):.6f}")
 
+    # Save model
     temp_path = MODEL_PATH + ".tmp"
     torch.save(model.state_dict(), temp_path)
     os.rename(temp_path, MODEL_PATH)
     
+    # Update version and stats (persistent across restarts)
     version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
-    try: version = int(open(version_file).read().strip()) + 1
-    except: version = 1
-    with open(version_file, "w") as f: f.write(str(version))
+    stats_file = os.path.join(os.path.dirname(MODEL_PATH), "training_stats.txt")
     
-    logger.info(f"  ✅ Model v{version} saved!")
+    # Load existing version and total games
+    try:
+        with open(version_file) as f:
+            version = int(f.read().strip())
+    except:
+        version = 1
+    
+    try:
+        with open(stats_file) as f:
+            total_games = int(f.read().strip())
+    except:
+        total_games = 0
+    
+    # Update stats
+    total_games += (len(all_positions) // 40)  # Rough estimate: 40 positions per game
+    
+    # Only increment version every 10K games (more meaningful)
+    new_version = 1 + (total_games // 10000)
+    
+    # Save stats
+    with open(version_file, "w") as f:
+        f.write(str(new_version))
+    with open(stats_file, "w") as f:
+        f.write(str(total_games))
+    
+    logger.info(f"  ✅ Model v{new_version} saved! ({total_games:,} total games trained)")
     return True
 
 def main():
@@ -176,7 +201,14 @@ def main():
     else:
         logger.info("🆕 No existing model")
 
+    # Load processed files tracker (persistent across restarts)
+    processed_files_path = os.path.join(os.path.dirname(MODEL_PATH), "processed_files.txt")
     processed_files = set()
+    if os.path.exists(processed_files_path):
+        with open(processed_files_path) as f:
+            processed_files = set(line.strip() for line in f if line.strip())
+        logger.info(f"📚 Loaded {len(processed_files):,} previously processed files")
+    
     consecutive_empty_batches = 0
 
     while True:
@@ -200,6 +232,11 @@ def main():
                 
                 trained = train_on_batch(model, batch, batch_num, total_batches)
                 processed_files.update(batch)
+                
+                # Save processed files tracker (persistent across restarts)
+                with open(processed_files_path, "w") as f:
+                    for filepath in sorted(processed_files):
+                        f.write(filepath + "\n")
                 
                 if trained: consecutive_empty_batches = 0
                 else: consecutive_empty_batches += 1
