@@ -90,9 +90,9 @@ def api_move():
         if move not in board.legal_moves:
             return jsonify({"error": "Illegal move"}), 400
         
-        # Player's move
-        board.push(move)
+        # Player's move - get SAN before pushing
         san_move = board.san(move)
+        board.push(move)
         move_history.append({"move": san_move, "player": "human"})
         add_log(f"👤 Player: {san_move}")
         
