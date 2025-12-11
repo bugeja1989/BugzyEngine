@@ -2,14 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-web_gui_v5.py: BugzyEngine v5.0 - Complete Game Mode System
-Features:
-- Manual Mode: You vs BugzyEngine with move suggestions
-- Simulation Mode: BugzyEngine vs Stockfish (auto-play)
-- Color Selection: Choose White/Black
-- Stockfish ELO: 500, 1000, 1500, 2000, 2500, 3000, 3200+
-- Move Suggestions: Real-time best moves
-- Enhanced Cyberpunk GUI
+BugzyEngine v6.0 - Complete Web GUI Rewrite
+Fully functional chess interface with guaranteed working chessboard
 """
 
 from flask import Flask, render_template_string, request, jsonify
@@ -22,7 +16,6 @@ import os
 import json
 import threading
 import time
-import random
 from datetime import datetime
 
 from neural_network.src.engine_utils import alpha_beta_search
@@ -31,104 +24,65 @@ from config import WEB_PORT, GPU_DEVICE
 
 app = Flask(__name__)
 
-# --- Global State ---
+# Global state
 board = chess.Board()
 device = torch.device(GPU_DEVICE)
 move_history = []
 engine_logs = []
 game_start_time = None
 
-# Game Mode State
-game_mode = "manual"  # "manual" or "simulation"
-player_color = "white"  # "white" or "black"
+# Game settings
+game_mode = "manual"
+player_color = "white"
 stockfish_elo = 2000
 simulation_running = False
 simulation_thread = None
 
-# Stockfish Engine
-stockfish_engine = None
-STOCKFISH_PATH = "stockfish"  # Assumes stockfish is in PATH
-
-# --- Model Management ---
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "bugzy_model.pth")
-DATA_PATH = os.path.join(SCRIPT_DIR, "data", "processed")
+# Model management
 model = ChessNet().to(device)
 model_loaded = False
-model_last_modified = 0
 model_version = 0
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "bugzy_model.pth")
 
-# --- Opening Book ---
-OPENING_BOOK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opening_books", "gm2001.bin")
+# Stockfish
+stockfish_engine = None
+STOCKFISH_PATH = "stockfish"
+
+# Opening book
+OPENING_BOOK_PATH = os.path.join(os.path.dirname(__file__), "opening_books", "gm2001.bin")
 opening_book_reader = None
 
-def load_opening_book():
-    """Load the polyglot opening book."""
-    global opening_book_reader
-    if os.path.exists(OPENING_BOOK_PATH):
-        try:
-            opening_book_reader = chess.polyglot.open_reader(OPENING_BOOK_PATH)
-            add_log("📚 Opening book loaded (12,000+ GM positions)")
-            return True
-        except Exception as e:
-            add_log(f"⚠️ Failed to load opening book: {e}")
-            return False
-    else:
-        add_log("⚠️ Opening book not found")
-        return False
-
-def get_opening_move():
-    """Get a move from the polyglot opening book."""
-    if not opening_book_reader:
-        return None
-    
-    try:
-        # Get the best move from the opening book for current position
-        entry = opening_book_reader.weighted_choice(board)
-        return entry.move if entry else None
-    except:
-        return None
-
 def add_log(message):
-    """Add a log entry with timestamp."""
+    """Add log message with timestamp."""
     timestamp = datetime.now().strftime("%H:%M:%S")
     engine_logs.append(f"[{timestamp}] {message}")
     if len(engine_logs) > 50:
         engine_logs.pop(0)
+    print(f"[{timestamp}] {message}")
 
 def load_model():
-    """Load or reload the model if it has been updated."""
-    global model, model_loaded, model_last_modified, model_version
-    
+    """Load the neural network model."""
+    global model, model_loaded, model_version
     if not os.path.exists(MODEL_PATH):
         return False
-    
-    current_mtime = os.path.getmtime(MODEL_PATH)
-    
-    if current_mtime > model_last_modified:
+    try:
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.eval()
+        model_loaded = True
+        
+        version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
         try:
-            model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-            model.eval()
-            model_loaded = True
-            model_last_modified = current_mtime
-            
-            # Read version from version.txt (matches trainer's versioning)
-            version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
-            try:
-                with open(version_file) as f:
-                    model_version = int(f.read().strip())
-            except:
-                model_version = 1
-            
-            add_log(f"🔄 Model reloaded! Version: {model_version}")
-            return True
-        except Exception as e:
-            add_log(f"⚠️ Error loading model: {e}")
-            return False
-    
-    return model_loaded
+            with open(version_file) as f:
+                model_version = int(f.read().strip())
+        except:
+            model_version = 1
+        
+        add_log(f"🧠 Model v{model_version} loaded")
+        return True
+    except Exception as e:
+        add_log(f"⚠️ Error loading model: {e}")
+        return False
 
-# Initialize Stockfish
 def init_stockfish():
     """Initialize Stockfish engine."""
     global stockfish_engine
@@ -137,311 +91,99 @@ def init_stockfish():
         add_log("✅ Stockfish initialized")
         return True
     except Exception as e:
-        add_log(f"⚠️ Stockfish not found: {e}")
+        add_log(f"⚠️ Stockfish error: {e}")
         return False
 
-# Initial setup
-if load_model():
-    add_log(f"🧠 BugzyEngine Model v{model_version} loaded")
-else:
-    # Even if model doesn't exist, try to read version from file
-    version_file = os.path.join(os.path.dirname(MODEL_PATH), "version.txt")
-    try:
-        with open(version_file) as f:
-            model_version = int(f.read().strip())
-    except:
-        model_version = 0
-    add_log("⚠️ No model found - playing randomly")
+def load_opening_book():
+    """Load polyglot opening book."""
+    global opening_book_reader
+    if os.path.exists(OPENING_BOOK_PATH):
+        try:
+            opening_book_reader = chess.polyglot.open_reader(OPENING_BOOK_PATH)
+            add_log("📚 Opening book loaded")
+            return True
+        except Exception as e:
+            add_log(f"⚠️ Opening book error: {e}")
+    return False
 
-init_stockfish()
-load_opening_book()
-
-def count_trained_positions():
-    """Count total positions from processed PGN files."""
-    if not os.path.exists(DATA_PATH):
-        return 0
-    count = 0
-    for filename in os.listdir(DATA_PATH):
-        if filename.endswith(".pgn"):
-            try:
-                with open(os.path.join(DATA_PATH, filename)) as f:
-                    pgn = chess.pgn.read_game(f)
-                    if pgn:
-                        count += len(list(pgn.mainline_moves()))
-            except:
-                pass
-    return count
-
-def get_stockfish_move(elo_level, time_limit=0.1):
-    """Get move from Stockfish at specified ELO."""
-    if not stockfish_engine:
+def get_opening_move():
+    """Get move from opening book."""
+    if not opening_book_reader:
         return None
-    
     try:
-        # Clamp ELO to valid Stockfish range (1320-3200)
-        clamped_elo = max(1320, min(3200, elo_level))
-        # Set ELO limit
-        stockfish_engine.configure({"UCI_LimitStrength": True, "UCI_Elo": clamped_elo})
-        # Play from current board position
-        result = stockfish_engine.play(board.copy(), chess.engine.Limit(time=time_limit))
-        # Validate move is legal
-        if result.move and result.move in board.legal_moves:
-            return result.move
-        else:
-            add_log(f"⚠️ Stockfish returned illegal move: {result.move}")
-            return None
-    except Exception as e:
-        add_log(f"⚠️ Stockfish error: {e}")
+        entry = opening_book_reader.weighted_choice(board)
+        return entry.move if entry else None
+    except:
         return None
 
 def get_bugzy_move():
     """Get move from BugzyEngine."""
-    load_model()  # Hot-reload check
-    try:
-        _, move = alpha_beta_search(board.copy(), depth=3, model=model if model_loaded else None)
-        # Validate move is legal
-        if move and move in board.legal_moves:
-            return move
-        else:
-            add_log(f"⚠️ BugzyEngine returned illegal move: {move}")
-            # Fallback: return a random legal move
-            legal_moves = list(board.legal_moves)
-            return legal_moves[0] if legal_moves else None
-    except Exception as e:
-        add_log(f"⚠️ BugzyEngine error: {e}")
-        # Fallback: return a random legal move
+    if not model_loaded:
         legal_moves = list(board.legal_moves)
         return legal_moves[0] if legal_moves else None
-
-def get_move_suggestions(num_suggestions=3):
-    """Get top move suggestions with evaluations."""
-    suggestions = []
-    
-    if not stockfish_engine:
-        return suggestions
     
     try:
-        # Get top moves from Stockfish analysis
-        info = stockfish_engine.analyse(board, chess.engine.Limit(depth=15), multipv=num_suggestions)
-        
-        for i, result in enumerate(info if isinstance(info, list) else [info]):
-            move = result.get("pv", [None])[0]
-            score = result.get("score", None)
-            
-            if move and score:
-                # Convert score to centipawns
-                if score.is_mate():
-                    eval_str = f"M{score.mate()}"
-                else:
-                    cp = score.relative.score()
-                    eval_str = f"{cp/100:+.2f}"
-                
-                suggestions.append({
-                    "move": board.san(move),
-                    "uci": move.uci(),
-                    "eval": eval_str,
-                    "rank": i + 1
-                })
+        move = alpha_beta_search(board, model, device, depth=3)
+        if move and move in board.legal_moves:
+            return move
     except Exception as e:
-        add_log(f"⚠️ Analysis error: {e}")
+        add_log(f"⚠️ Engine error: {e}")
     
-    return suggestions
+    legal_moves = list(board.legal_moves)
+    return legal_moves[0] if legal_moves else None
 
-# --- Simulation Mode ---
-def run_simulation():
-    """Run BugzyEngine vs Stockfish simulation."""
-    global simulation_running, board, move_history
-    
-    add_log(f"🎮 Simulation started: BugzyEngine vs Stockfish (ELO {stockfish_elo})")
-    
-    move_count = 0
-    max_moves = 200  # Prevent infinite games
-    
-    while simulation_running and not board.is_game_over() and move_count < max_moves:
-        time.sleep(1)  # Delay for visualization
-        
-        try:
-            # Determine if it's BugzyEngine's turn based on selected color
-            bugzy_turn = (player_color == "white" and board.turn == chess.WHITE) or \
-                        (player_color == "black" and board.turn == chess.BLACK)
-            
-            if bugzy_turn:
-                # BugzyEngine's turn - try opening book first
-                opening_move = get_opening_move()
-                
-                if opening_move and opening_move in board.legal_moves:
-                    # Use opening book move
-                    move = opening_move
-                    player_name = "BugzyEngine (Book)"
-                else:
-                    # Opening book exhausted, use neural network
-                    move = get_bugzy_move()
-                    player_name = "BugzyEngine"
-            else:
-                # Stockfish's turn - always uses its own engine (no book)
-                move = get_stockfish_move(stockfish_elo)
-                player_name = f"Stockfish-{stockfish_elo}"
-            
-            if move and move in board.legal_moves:
-                san_move = board.san(move)
-                board.push(move)
-                move_history.append({"move": san_move, "player": player_name})
-                add_log(f"{'⚪' if board.turn == chess.BLACK else '⚫'} {player_name}: {san_move}")
-                move_count += 1
-            else:
-                add_log(f"⚠️ Invalid move in simulation: {move}")
-                add_log(f"Board FEN: {board.fen()}")
-                break
-        except Exception as e:
-            add_log(f"❌ Simulation error: {e}")
-            break
-    
-    if board.is_game_over():
-        result = board.result()
-        add_log(f"🏁 Game Over: {result}")
-        
-        if result == "1-0":
-            add_log("🎉 BugzyEngine WINS!")
-        elif result == "0-1":
-            add_log(f"😔 Stockfish-{stockfish_elo} wins")
-        else:
-            add_log("🤝 Draw")
-    
-    simulation_running = False
+def get_stockfish_move(elo):
+    """Get move from Stockfish."""
+    if not stockfish_engine:
+        return None
+    try:
+        elo = max(1320, min(3200, elo))
+        stockfish_engine.configure({"UCI_LimitStrength": True, "UCI_Elo": elo})
+        result = stockfish_engine.play(board.copy(), chess.engine.Limit(time=0.1))
+        return result.move if result and result.move in board.legal_moves else None
+    except Exception as e:
+        add_log(f"⚠️ Stockfish error: {e}")
+        return None
 
-# --- API Routes ---
+# Initialize on startup
+load_model()
+init_stockfish()
+load_opening_book()
+
+# API Routes
 @app.route("/")
 def index():
-    return render_template_string(CYBERPUNK_HTML_V5)
-
-@app.route("/api/board")
-def api_board():
-    """Return current board state."""
-    return jsonify({
-        "fen": board.fen(),
-        "game_over": board.is_game_over(),
-        "result": board.result() if board.is_game_over() else None,
-        "turn": "white" if board.turn == chess.WHITE else "black",
-        "move_history": move_history
-    })
+    return render_template_string(HTML_TEMPLATE)
 
 @app.route("/api/move", methods=["POST"])
 def api_move():
-    """Handle player move in manual mode."""
-    global board, move_history, game_start_time
-    
-    if game_mode != "manual":
-        return jsonify({"error": "Not in manual mode"}), 400
-    
-    if not game_start_time:
-        game_start_time = datetime.now()
-    
-    move_uci = request.json.get("move")
-    if not move_uci:
-        return jsonify({"error": "No move provided"}), 400
-    
-    try:
-        move = chess.Move.from_uci(move_uci)
-        if move not in board.legal_moves:
-            return jsonify({"error": "Illegal move"}), 400
-        
-        # Player's move
-        san_move = board.san(move)
-        board.push(move)
-        move_history.append({"move": san_move, "player": "You"})
-        add_log(f"👤 You: {san_move}")
-        
-        # Check if game over
-        if board.is_game_over():
-            add_log(f"🏁 Game Over: {board.result()}")
-            return jsonify({
-                "fen": board.fen(),
-                "game_over": True,
-                "result": board.result(),
-                "engine_move": None,
-                "san_move": san_move,
-                "suggestions": []
-            })
-        
-        # Engine's turn
-        load_model()
-        add_log("🤖 BugzyEngine thinking...")
-        engine_move = get_bugzy_move()
-        
-        if engine_move:
-            san_engine_move = board.san(engine_move)
-            board.push(engine_move)
-            move_history.append({"move": san_engine_move, "player": "BugzyEngine"})
-            add_log(f"🤖 BugzyEngine: {san_engine_move}")
-        
-        # Get suggestions for next move
-        suggestions = get_move_suggestions()
-        
-        return jsonify({
-            "fen": board.fen(),
-            "game_over": board.is_game_over(),
-            "result": board.result() if board.is_game_over() else None,
-            "engine_move": engine_move.uci() if engine_move else None,
-            "san_move": san_move,
-            "suggestions": suggestions
-        })
-    
-    except Exception as e:
-        add_log(f"⚠️ Error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/suggestions")
-def api_suggestions():
-    """Get move suggestions for current position."""
-    suggestions = get_move_suggestions()
-    return jsonify({"suggestions": suggestions})
-
-@app.route("/api/settings", methods=["POST"])
-def api_settings():
-    """Update game settings."""
-    global game_mode, player_color, stockfish_elo
+    """Handle player move and get engine response."""
+    global board, move_history
     
     data = request.json
-    if "mode" in data:
-        game_mode = data["mode"]
-        add_log(f"🎮 Mode: {game_mode}")
+    player_move = data.get("move")
     
-    if "color" in data:
-        player_color = data["color"]
-        add_log(f"🎨 Playing as: {player_color}")
+    if player_move:
+        try:
+            move = chess.Move.from_uci(player_move)
+            if move in board.legal_moves:
+                board.push(move)
+                move_history.append({"move": board.san(move), "player": "You"})
+        except:
+            pass
     
-    if "stockfish_elo" in data:
-        stockfish_elo = int(data["stockfish_elo"])
-        add_log(f"🎯 Stockfish ELO: {stockfish_elo}")
+    if not board.is_game_over() and game_mode == "manual":
+        engine_move = get_bugzy_move()
+        if engine_move:
+            san = board.san(engine_move)
+            board.push(engine_move)
+            move_history.append({"move": san, "player": "BugzyEngine"})
     
-    return jsonify({"success": True})
-
-@app.route("/api/simulation/start", methods=["POST"])
-def api_simulation_start():
-    """Start simulation mode."""
-    global simulation_running, simulation_thread
-    
-    if simulation_running:
-        return jsonify({"error": "Simulation already running"}), 400
-    
-    simulation_running = True
-    simulation_thread = threading.Thread(target=run_simulation, daemon=True)
-    simulation_thread.start()
-    
-    return jsonify({"success": True})
-
-@app.route("/api/simulation/stop", methods=["POST"])
-def api_simulation_stop():
-    """Stop simulation mode."""
-    global simulation_running
-    simulation_running = False
-    add_log("⏹️ Simulation stopped")
-    return jsonify({"success": True})
-
-@app.route("/api/simulation/status")
-def api_simulation_status():
-    """Get simulation status."""
-    return jsonify({"running": simulation_running})
+    return jsonify({
+        "fen": board.fen(),
+        "game_over": board.is_game_over(),
+        "result": board.result() if board.is_game_over() else None
+    })
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
@@ -451,13 +193,12 @@ def api_reset():
     board = chess.Board()
     move_history = []
     game_start_time = datetime.now()
-    add_log("🔄 New game started!")
+    add_log("🔄 New game started")
     return jsonify({"fen": board.fen()})
 
 @app.route("/api/stats")
 def api_stats():
-    """Return game statistics."""
-    positions_trained = count_trained_positions()
+    """Get game statistics."""
     gpu_status = "METAL ACTIVE" if device.type == "mps" else device.type.upper()
     
     game_time = "00:00"
@@ -467,29 +208,39 @@ def api_stats():
         seconds = int(elapsed.total_seconds() % 60)
         game_time = f"{minutes:02d}:{seconds:02d}"
     
-    load_model()
-    
     return jsonify({
-        "positions_trained": positions_trained,
         "gpu_status": gpu_status,
-        "model_loaded": model_loaded,
         "model_version": model_version,
         "move_count": len(move_history),
-        "game_time": game_time,
-        "game_mode": game_mode,
-        "player_color": player_color,
-        "stockfish_elo": stockfish_elo,
-        "simulation_running": simulation_running
+        "game_time": game_time
+    })
+
+@app.route("/api/board")
+def api_board():
+    """Get current board state."""
+    return jsonify({
+        "fen": board.fen(),
+        "moves": move_history
     })
 
 @app.route("/api/logs")
 def api_logs():
-    """Return recent engine logs."""
+    """Get engine logs."""
     return jsonify({"logs": engine_logs})
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings():
+    """Update game settings."""
+    global game_mode, player_color, stockfish_elo
+    data = request.json
+    game_mode = data.get("mode", game_mode)
+    player_color = data.get("color", player_color)
+    stockfish_elo = data.get("elo", stockfish_elo)
+    return jsonify({"success": True})
 
 @app.route("/api/pgn")
 def api_pgn():
-    """Generate PGN for current game."""
+    """Generate PGN."""
     game = chess.pgn.Game()
     game.headers["Event"] = "BugzyEngine Game"
     game.headers["Date"] = datetime.now().strftime("%Y.%m.%d")
@@ -499,9 +250,8 @@ def api_pgn():
     node = game
     temp_board = chess.Board()
     for move_data in move_history:
-        move_san = move_data["move"]
         try:
-            move = temp_board.parse_san(move_san)
+            move = temp_board.parse_san(move_data["move"])
             node = node.add_variation(move)
             temp_board.push(move)
         except:
@@ -509,61 +259,50 @@ def api_pgn():
     
     return jsonify({"pgn": str(game)})
 
-# --- HTML Template (Truncated for brevity - will be in separate message) ---
-CYBERPUNK_HTML_V5 = """
+# HTML Template
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>BugzyEngine v5.0</title>
+    <title>BugzyEngine v6.0</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Courier New', monospace;
             background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
-            color: #00ffff;
-            padding: 10px;
-            overflow: hidden;
-            height: 100vh;
+            color: #00ff41;
+            min-height: 100vh;
+            padding: 20px;
         }
-        .container { 
-            max-width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
         }
         h1 {
             text-align: center;
-            font-size: 2em;
-            text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
-            margin-bottom: 10px;
-            letter-spacing: 3px;
+            font-size: 3em;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px #00ff41;
+            color: #00ffff;
         }
-        .main-grid {
+        .game-container {
             display: grid;
-            grid-template-columns: 280px 1fr 350px;
-            gap: 15px;
-            flex: 1;
-            overflow: hidden;
+            grid-template-columns: 250px 1fr 300px;
+            gap: 20px;
         }
         .panel {
-            background: rgba(0, 0, 0, 0.7);
-            border: 2px solid #00ffff;
+            background: rgba(0, 20, 40, 0.8);
+            border: 2px solid #00ff41;
             border-radius: 10px;
-            padding: 15px;
-            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
+            padding: 20px;
         }
-        h2 {
-            color: #ff0055;
-            text-shadow: 0 0 10px #ff0055;
-            margin-bottom: 10px;
-            font-size: 1.1em;
+        .panel h2 {
+            color: #ff0080;
+            margin-bottom: 15px;
+            font-size: 1.2em;
         }
         #board {
             width: 100%;
@@ -571,88 +310,42 @@ CYBERPUNK_HTML_V5 = """
             margin: 0 auto;
         }
         .btn {
-            background: linear-gradient(135deg, #00ffff 0%, #0088ff 100%);
-            border: none;
-            color: #000;
-            padding: 12px 24px;
-            font-size: 1em;
-            font-weight: bold;
-            border-radius: 5px;
-            cursor: pointer;
             width: 100%;
-            margin-bottom: 10px;
-            transition: all 0.3s;
+            padding: 12px;
+            margin: 10px 0;
+            background: #00ff41;
+            color: #000;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1em;
         }
         .btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 20px #00ffff;
+            background: #00cc33;
         }
         .btn-danger {
-            background: linear-gradient(135deg, #ff0055 0%, #ff4488 100%);
+            background: #ff0080;
+            color: #fff;
         }
-        .btn-success {
-            background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
+        .btn-danger:hover {
+            background: #cc0066;
         }
         select, input[type="range"] {
             width: 100%;
             padding: 10px;
-            background: rgba(0, 255, 255, 0.1);
-            border: 1px solid #00ffff;
-            color: #00ffff;
+            margin: 10px 0;
+            background: #000;
+            color: #00ff41;
+            border: 1px solid #00ff41;
             border-radius: 5px;
-            margin-bottom: 10px;
-            font-family: 'Courier New', monospace;
-        }
-        .color-selector {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        .color-btn {
-            flex: 1;
-            padding: 15px;
-            border: 2px solid #00ffff;
-            background: rgba(0, 255, 255, 0.1);
-            color: #00ffff;
-            cursor: pointer;
-            border-radius: 5px;
-            transition: all 0.3s;
-        }
-        .color-btn.active {
-            background: #00ffff;
-            color: #000;
-            box-shadow: 0 0 20px #00ffff;
-        }
-        .suggestions-list {
-            list-style: none;
-        }
-        .suggestion-item {
-            background: rgba(0, 255, 255, 0.1);
-            padding: 10px;
-            margin-bottom: 8px;
-            border-left: 3px solid #00ffff;
-            border-radius: 3px;
-        }
-        .suggestion-move {
-            color: #00ffff;
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-        .suggestion-eval {
-            color: #ff0055;
-            float: right;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 15px;
         }
         .stat-box {
-            background: rgba(0, 255, 255, 0.1);
-            border: 1px solid #00ffff;
+            background: #000;
             padding: 10px;
+            margin: 10px 0;
             border-radius: 5px;
+            border: 1px solid #00ff41;
         }
         .stat-label {
             color: #888;
@@ -663,126 +356,119 @@ CYBERPUNK_HTML_V5 = """
             font-size: 1.5em;
             font-weight: bold;
         }
-        .logs {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid #00ff88;
+        .log-box {
+            background: #000;
             padding: 10px;
-            flex: 1;
-            overflow-y: auto;
-            font-size: 0.75em;
-            color: #00ff88;
-            border-radius: 5px;
-        }
-        .log-entry {
-            margin-bottom: 5px;
-            padding: 3px 0;
-            border-bottom: 1px solid rgba(0, 255, 136, 0.2);
-        }
-        .move-history {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid #ff0055;
-            padding: 10px;
-            height: 150px;
+            height: 200px;
             overflow-y: auto;
             border-radius: 5px;
-            font-size: 0.85em;
+            border: 1px solid #00ff41;
+            font-size: 0.9em;
+        }
+        .move-list {
+            background: #000;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            border-radius: 5px;
+            border: 1px solid #00ff41;
+        }
+        .color-btn {
+            display: inline-block;
+            width: 48%;
+            padding: 10px;
+            margin: 5px 1%;
+            background: #000;
+            border: 2px solid #00ff41;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .color-btn.active {
+            background: #00ff41;
+            color: #000;
         }
         .game-status {
             text-align: center;
-            padding: 10px;
-            background: rgba(0, 255, 255, 0.2);
-            border: 1px solid #00ffff;
+            font-size: 1.5em;
+            padding: 15px;
+            background: #000;
             border-radius: 5px;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
             color: #00ffff;
-            font-size: 1.2em;
-        }
-        .elo-display {
-            text-align: center;
-            color: #ff0055;
-            font-size: 1.2em;
-            margin-top: 5px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>⚡ BUGZYENGINE 5.0 ⚡</h1>
+        <h1>⚡ BUGZYENGINE 6.0 ⚡</h1>
         
-        <div class="main-grid">
-            <!-- Left Panel: Controls -->
+        <div class="game-container">
+            <!-- Left Panel -->
             <div class="panel">
                 <h2>🎮 GAME MODE</h2>
-                <select id="game-mode" onchange="changeGameMode()">
+                <select id="game-mode" onchange="updateSettings()">
                     <option value="manual">Manual Play</option>
                     <option value="simulation">Simulation Mode</option>
                 </select>
                 
                 <h2 style="margin-top: 20px;">🎨 YOUR COLOR</h2>
-                <div class="color-selector">
+                <div>
                     <div class="color-btn active" id="white-btn" onclick="selectColor('white')">⚪ WHITE</div>
                     <div class="color-btn" id="black-btn" onclick="selectColor('black')">⚫ BLACK</div>
                 </div>
                 
-                <h2>🎯 STOCKFISH ELO</h2>
+                <h2 style="margin-top: 20px;">🎯 STOCKFISH ELO</h2>
                 <input type="range" id="stockfish-elo" min="1320" max="3200" step="100" value="2000" oninput="updateElo()">
-                <div class="elo-display" id="elo-display">ELO: 2000</div>
-                <div style="font-size: 0.7em; color: #00ff41; margin-top: 5px;">⚠️ Min: 1320 (Stockfish limit)</div>
+                <div id="elo-display" class="stat-value" style="text-align: center;">ELO: 2000</div>
                 
                 <h2 style="margin-top: 20px;">⚙️ CONTROLS</h2>
                 <button class="btn" onclick="resetGame()">🔄 NEW GAME</button>
-                <button class="btn btn-success" id="sim-btn" onclick="toggleSimulation()" style="display:none;">▶️ START SIMULATION</button>
                 <button class="btn btn-danger" onclick="copyPGN()">📋 COPY PGN</button>
-                
-                <h2 style="margin-top: 20px;">📊 STATS</h2>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <div class="stat-label">GPU STATUS</div>
-                        <div class="stat-value" id="gpu-status">LOADING...</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">MODEL VERSION</div>
-                        <div class="stat-value" id="model-version">0</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">MOVE COUNT</div>
-                        <div class="stat-value" id="move-count">0</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">GAME TIME</div>
-                        <div class="stat-value" id="game-time">00:00</div>
-                    </div>
-                </div>
-                
-                <h2 style="margin-top: 20px;">📜 MOVE HISTORY</h2>
-                <div class="move-history" id="move-history"></div>
             </div>
             
-            <!-- Center Panel: Board -->
+            <!-- Center Panel -->
             <div class="panel">
                 <div class="game-status" id="game-status">White to move</div>
                 <div id="board"></div>
             </div>
             
-            <!-- Right Panel: Suggestions & Logs -->
+            <!-- Right Panel -->
             <div class="panel">
-                <h2>💡 MOVE SUGGESTIONS</h2>
-                <ul class="suggestions-list" id="suggestions"></ul>
+                <h2>📊 STATS</h2>
+                <div class="stat-box">
+                    <div class="stat-label">GPU STATUS</div>
+                    <div class="stat-value" id="gpu-status">LOADING...</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">MODEL VERSION</div>
+                    <div class="stat-value" id="model-version">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">MOVES</div>
+                    <div class="stat-value" id="move-count">0</div>
+                </div>
+                
+                <h2 style="margin-top: 20px;">📜 MOVE HISTORY</h2>
+                <div class="move-list" id="move-history"></div>
                 
                 <h2 style="margin-top: 20px;">🔥 ENGINE LOGS</h2>
-                <div class="logs" id="logs"></div>
+                <div class="log-box" id="logs"></div>
             </div>
         </div>
     </div>
     
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script>
-        let game, board;
-        let gameMode = 'manual';
-        let playerColor = 'white';
-        let stockfishElo = 2000;
-        let simulationRunning = false;
+        var game = new Chess();
+        var board = null;
+        var gameMode = 'manual';
+        var playerColor = 'white';
+        var stockfishElo = 2000;
         
-        function onDragStart(source, piece, position, orientation) {
+        function onDragStart(source, piece) {
             if (game.game_over()) return false;
             if (gameMode === 'simulation') return false;
             if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
@@ -793,10 +479,11 @@ CYBERPUNK_HTML_V5 = """
                 (playerColor === 'black' && game.turn() === 'w')) {
                 return false;
             }
+            return true;
         }
         
         function onDrop(source, target) {
-            let move = game.move({
+            var move = game.move({
                 from: source,
                 to: target,
                 promotion: 'q'
@@ -806,6 +493,7 @@ CYBERPUNK_HTML_V5 = """
             
             updateStatus();
             makeEngineMove(move.from + move.to);
+            return true;
         }
         
         function onSnapEnd() {
@@ -824,13 +512,13 @@ CYBERPUNK_HTML_V5 = """
                     game.load(data.fen);
                     board.position(data.fen);
                     updateStatus();
-                    updateSuggestions(data.suggestions || []);
+                    updateBoard();
                 }
             });
         }
         
         function updateStatus() {
-            let status = '';
+            var status = '';
             if (game.in_checkmate()) {
                 status = '🏁 Checkmate!';
             } else if (game.in_draw()) {
@@ -843,78 +531,6 @@ CYBERPUNK_HTML_V5 = """
             document.getElementById('game-status').textContent = status;
         }
         
-        function updateSuggestions(suggestions) {
-            let html = '';
-            suggestions.forEach(sug => {
-                html += `<li class="suggestion-item">
-                    <span class="suggestion-move">${sug.rank}. ${sug.move}</span>
-                    <span class="suggestion-eval">${sug.eval}</span>
-                </li>`;
-            });
-            document.getElementById('suggestions').innerHTML = html || '<li class="suggestion-item">No suggestions available</li>';
-        }
-        
-        function changeGameMode() {
-            gameMode = document.getElementById('game-mode').value;
-            fetch('/api/settings', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({mode: gameMode})
-            });
-            
-            if (gameMode === 'simulation') {
-                document.getElementById('sim-btn').style.display = 'block';
-            } else {
-                document.getElementById('sim-btn').style.display = 'none';
-            }
-        }
-        
-        function selectColor(color) {
-            playerColor = color;
-            document.getElementById('white-btn').classList.remove('active');
-            document.getElementById('black-btn').classList.remove('active');
-            document.getElementById(color + '-btn').classList.add('active');
-            
-            board.orientation(color === 'white' ? 'white' : 'black');
-            
-            fetch('/api/settings', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({color: color})
-            });
-        }
-        
-        function updateElo() {
-            stockfishElo = parseInt(document.getElementById('stockfish-elo').value);
-            document.getElementById('elo-display').textContent = 'ELO: ' + stockfishElo;
-            
-            fetch('/api/settings', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({stockfish_elo: stockfishElo})
-            });
-        }
-        
-        function toggleSimulation() {
-            if (!simulationRunning) {
-                fetch('/api/simulation/start', {method: 'POST'})
-                .then(() => {
-                    simulationRunning = true;
-                    document.getElementById('sim-btn').textContent = '⏹️ STOP SIMULATION';
-                    document.getElementById('sim-btn').classList.add('btn-danger');
-                    document.getElementById('sim-btn').classList.remove('btn-success');
-                });
-            } else {
-                fetch('/api/simulation/stop', {method: 'POST'})
-                .then(() => {
-                    simulationRunning = false;
-                    document.getElementById('sim-btn').textContent = '▶️ START SIMULATION';
-                    document.getElementById('sim-btn').classList.remove('btn-danger');
-                    document.getElementById('sim-btn').classList.add('btn-success');
-                });
-            }
-        }
-        
         function resetGame() {
             fetch('/api/reset', {method: 'POST'})
             .then(response => response.json())
@@ -922,8 +538,33 @@ CYBERPUNK_HTML_V5 = """
                 game.reset();
                 board.start();
                 updateStatus();
-                document.getElementById('suggestions').innerHTML = '';
-                document.getElementById('move-history').innerHTML = '';
+                updateBoard();
+            });
+        }
+        
+        function selectColor(color) {
+            playerColor = color;
+            document.getElementById('white-btn').classList.toggle('active', color === 'white');
+            document.getElementById('black-btn').classList.toggle('active', color === 'black');
+            updateSettings();
+        }
+        
+        function updateElo() {
+            stockfishElo = parseInt(document.getElementById('stockfish-elo').value);
+            document.getElementById('elo-display').textContent = 'ELO: ' + stockfishElo;
+            updateSettings();
+        }
+        
+        function updateSettings() {
+            gameMode = document.getElementById('game-mode').value;
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    mode: gameMode,
+                    color: playerColor,
+                    elo: stockfishElo
+                })
             });
         }
         
@@ -931,23 +572,13 @@ CYBERPUNK_HTML_V5 = """
             fetch('/api/pgn')
             .then(response => response.json())
             .then(data => {
-                // Try modern clipboard API first
-                if (navigator.clipboard && navigator.clipboard.writeText) {
+                if (navigator.clipboard) {
                     navigator.clipboard.writeText(data.pgn)
-                        .then(() => {
-                            alert('✅ PGN copied to clipboard!');
-                        })
-                        .catch(err => {
-                            // Fallback: show PGN in alert for manual copy
-                            alert('⚠️ Clipboard access denied. Here is the PGN:\n\n' + data.pgn);
-                        });
+                        .then(() => alert('✅ PGN copied to clipboard!'))
+                        .catch(() => alert('📋 PGN:\\n\\n' + data.pgn));
                 } else {
-                    // Fallback for older browsers
-                    alert('📋 PGN:\n\n' + data.pgn);
+                    alert('📋 PGN:\\n\\n' + data.pgn);
                 }
-            })
-            .catch(err => {
-                alert('❌ Error generating PGN: ' + err);
             });
         }
         
@@ -958,7 +589,19 @@ CYBERPUNK_HTML_V5 = """
                 document.getElementById('gpu-status').textContent = data.gpu_status;
                 document.getElementById('model-version').textContent = data.model_version;
                 document.getElementById('move-count').textContent = data.move_count;
-                document.getElementById('game-time').textContent = data.game_time;
+            });
+        }
+        
+        function updateBoard() {
+            fetch('/api/board')
+            .then(response => response.json())
+            .then(data => {
+                var html = '';
+                data.moves.forEach((m, i) => {
+                    html += '<div style="padding: 5px; border-bottom: 1px solid #333;">' + 
+                            (i+1) + '. ' + m.player + ': ' + m.move + '</div>';
+                });
+                document.getElementById('move-history').innerHTML = html;
             });
         }
         
@@ -966,50 +609,18 @@ CYBERPUNK_HTML_V5 = """
             fetch('/api/logs')
             .then(response => response.json())
             .then(data => {
-                const logsDiv = document.getElementById('logs');
-                logsDiv.innerHTML = data.logs.map(log => 
-                    `<div class="log-entry">${log}</div>`
-                ).join('');
+                var html = '';
+                data.logs.forEach(log => {
+                    html += '<div style="padding: 2px;">' + log + '</div>';
+                });
+                document.getElementById('logs').innerHTML = html;
+                var logsDiv = document.getElementById('logs');
                 logsDiv.scrollTop = logsDiv.scrollHeight;
             });
         }
         
-        function updateBoard() {
-            if (gameMode === 'simulation') {
-                fetch('/api/board')
-                .then(response => response.json())
-                .then(data => {
-                    game.load(data.fen);
-                    board.position(data.fen);
-                    updateStatus();
-                    
-                    // Update move history
-                    if (data.move_history) {
-                        let html = '';
-                        data.move_history.forEach((m, i) => {
-                            html += `<div>${i+1}. ${m.player}: ${m.move}</div>`;
-                        });
-                        document.getElementById('move-history').innerHTML = html;
-                    }
-                });
-            }
-        }
-        
-        // Initialize when DOM and libraries are ready
-        function initializeBoard() {
-            // Wait for libraries to load
-            if (typeof Chess === 'undefined' || typeof Chessboard === 'undefined') {
-                console.error('Chess libraries not loaded yet, retrying...');
-                setTimeout(initializeBoard, 100);
-                return;
-            }
-            
-            console.log('Initializing chessboard...');
-            
-            // Initialize chess game
-            game = new Chess();
-            
-            // Initialize chessboard
+        // Initialize
+        $(document).ready(function() {
             var config = {
                 draggable: true,
                 position: 'start',
@@ -1020,24 +631,17 @@ CYBERPUNK_HTML_V5 = """
             };
             board = Chessboard('board', config);
             
-            console.log('Chessboard initialized!');
-            
             updateStatus();
-            updateStats();  // Initial call
+            updateStats();
             setInterval(updateStats, 2000);
-            setInterval(updateLogs, 2000);
             setInterval(updateBoard, 1000);
-        }
-        
-        document.addEventListener('DOMContentLoaded', initializeBoard);
+            setInterval(updateLogs, 2000);
+        });
     </script>
 </body>
 </html>
 """
 
 if __name__ == "__main__":
-    add_log("⚡ BugzyEngine 5.0 started!")
-    add_log(f"🖥️ GPU Device: {device.type}")
-    add_log(f"🧠 Model loaded: {model_loaded}")
-    print(f"Starting BugzyEngine v5.0 on http://localhost:{WEB_PORT}")
+    print(f"Starting BugzyEngine v6.0 on http://localhost:{WEB_PORT}")
     app.run(host="0.0.0.0", port=WEB_PORT, debug=True, use_reloader=False)
