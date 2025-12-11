@@ -17,7 +17,7 @@ def board_to_tensor(board: chess.Board) -> torch.Tensor:
     """
     Converts a chess.Board object to a tensor representation.
     """
-    tensor = np.zeros((1, 12, 8, 8), dtype=np.float32)
+    tensor = np.zeros((12, 8, 8), dtype=np.float32)
     for i in range(8):
         for j in range(8):
             square = chess.square(i, j)
@@ -27,7 +27,7 @@ def board_to_tensor(board: chess.Board) -> torch.Tensor:
                 color = piece.color
                 # One-hot encode piece type and color
                 layer = (piece_type - 1) * 2 + (0 if color == chess.WHITE else 1)
-                tensor[0, layer, i, j] = 1
+                tensor[layer, i, j] = 1
     return torch.from_numpy(tensor).to(device)
 
 def evaluate_position(board: chess.Board, model) -> float:
