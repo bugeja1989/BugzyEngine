@@ -30,6 +30,7 @@ device = torch.device(GPU_DEVICE)
 
 NUM_WORKERS = 14
 BATCH_PROCESS_SIZE = 10000  # Process 10,000 files per batch for faster training
+CHUNK_SIZE = 2000  # Process in chunks to avoid pipe overflow
 MAX_EMPTY_BATCHES = 3  # Reduced since batches are larger now
 
 class ChessNet(nn.Module):
@@ -110,18 +111,27 @@ def process_single_pgn(file_path):
     return file_path, positions, outcomes, False
 
 def train_on_batch(model, file_batch, batch_num, total_batches):
-    logger.info(f"📦 Batch {batch_num}/{total_batches}: Processing {len(file_batch)} files...")
-    with Pool(NUM_WORKERS) as p:
-        results = p.map(process_single_pgn, file_batch)
+    logger.info(f"📦 Batch {batch_num}/{total_batches}: Processing {len(file_batch):,} files...")
     
+    # Process in chunks to avoid pipe overflow with large batches
     all_positions, all_outcomes, cached_count, processed_count, empty_count = [], [], 0, 0, 0
-    for _, positions, outcomes, cached in results:
-        if cached: cached_count += 1
-        else: processed_count += 1
-        if not positions: empty_count += 1
-        else:
-            all_positions.extend(positions)
-            all_outcomes.extend(outcomes)
+    
+    num_chunks = (len(file_batch) + CHUNK_SIZE - 1) // CHUNK_SIZE
+    for chunk_idx in range(0, len(file_batch), CHUNK_SIZE):
+        chunk = file_batch[chunk_idx:chunk_idx + CHUNK_SIZE]
+        chunk_num = chunk_idx // CHUNK_SIZE + 1
+        logger.info(f"  📦 Chunk {chunk_num}/{num_chunks}: Processing {len(chunk):,} files...")
+        
+        with Pool(NUM_WORKERS) as p:
+            results = p.map(process_single_pgn, chunk)
+        
+        for _, positions, outcomes, cached in results:
+            if cached: cached_count += 1
+            else: processed_count += 1
+            if not positions: empty_count += 1
+            else:
+                all_positions.extend(positions)
+                all_outcomes.extend(outcomes)
 
     logger.info(f"  📊 Stats: {cached_count} cached | {processed_count} processed | {empty_count} empty")
     logger.info(f"  📈 Found {len(all_positions):,} positions from {len(file_batch) - empty_count} valid games")
