@@ -20,7 +20,8 @@ board = chess.Board()
 device = torch.device(GPU_DEVICE)
 
 # --- Load Model ---
-MODEL_PATH = "/home/ubuntu/BugzyEngine/models/bugzy_model.pth"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "bugzy_model.pth")
 model = ChessNet().to(device)
 if os.path.exists(MODEL_PATH):
     print(f"Loading model from {MODEL_PATH}")

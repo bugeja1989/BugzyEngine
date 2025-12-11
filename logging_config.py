@@ -5,7 +5,9 @@ logging_config.py: Centralized logging configuration for BugzyEngine.
 import logging
 import os
 
-LOGS_DIR = "/home/ubuntu/BugzyEngine/logs"
+# Use relative path from the script location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_DIR = os.path.join(SCRIPT_DIR, "logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 def setup_logging(logger_name, log_file):

@@ -19,8 +19,10 @@ from config import (
     TOP_N_PLAYERS, MIN_COMPLEXITY_SCORE, MIN_SACRIFICES, MIN_DRAW_COMPLEXITY, MIN_ACCURACY_FOR_DRAW
 )
 
-DATA_DIR = "/home/ubuntu/BugzyEngine/data/raw_pgn"
-DB_PATH = "/home/ubuntu/BugzyEngine/data/collector.db"
+# Use relative paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(SCRIPT_DIR, "data", "raw_pgn")
+DB_PATH = os.path.join(SCRIPT_DIR, "data", "collector.db")
 
 # --- Database Setup ---
 def init_db():
@@ -107,7 +109,7 @@ def is_game_style_match(game, player_username):
     is_draw = result == "1/2-1/2"
 
     # Accuracy check for draws is a placeholder for now
-        if not player_won and not (is_draw and game.headers.get("Accuracy", 0) > MIN_ACCURACY_FOR_DRAW):
+    if not player_won and not (is_draw and game.headers.get("Accuracy", 0) > MIN_ACCURACY_FOR_DRAW):
         return False
 
     # 2. Complexity and Sacrifice Heuristics
@@ -140,11 +142,11 @@ def is_game_style_match(game, player_username):
     complexity_score = captures_made + checks_made
 
     # 3. Final Decision
-        if player_won and (sacrifices_made >= MIN_SACRIFICES or complexity_score > MIN_COMPLEXITY_SCORE):
+    if player_won and (sacrifices_made >= MIN_SACRIFICES or complexity_score > MIN_COMPLEXITY_SCORE):
         return True
     
     # Keep high-complexity draws (placeholder for accuracy)
-        if is_draw and complexity_score > MIN_DRAW_COMPLEXITY:
+    if is_draw and complexity_score > MIN_DRAW_COMPLEXITY:
         return True
 
     return False
@@ -186,6 +188,7 @@ async def process_player(session, player_username):
 
 async def main_async():
     os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     init_db()
     semaphore = asyncio.Semaphore(COLLECTOR_CONCURRENCY)
 

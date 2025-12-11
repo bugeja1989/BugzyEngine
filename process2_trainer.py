@@ -15,9 +15,11 @@ from neural_network.src.engine_utils import board_to_tensor
 from config import GPU_DEVICE, LEARNING_RATE, BATCH_SIZE, EPOCHS
 from logging_config import setup_logging
 
-DATA_PATH = "/home/ubuntu/BugzyEngine/data/raw_pgn"
-PROCESSED_PATH = "/home/ubuntu/BugzyEngine/data/processed"
-MODEL_PATH = "/home/ubuntu/BugzyEngine/models/bugzy_model.pth"
+# Use relative paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(SCRIPT_DIR, "data", "raw_pgn")
+PROCESSED_PATH = os.path.join(SCRIPT_DIR, "data", "processed")
+MODEL_PATH = os.path.join(SCRIPT_DIR, "models", "bugzy_model.pth")
 
 device = torch.device(GPU_DEVICE)
 
