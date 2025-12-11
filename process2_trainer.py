@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from multiprocessing import Pool
-from neural_network.src.engine_utils import board_to_tensor, get_material_balance
+from neural_network.src.engine_utils import board_to_tensor
 from config import (
     GPU_DEVICE, LEARNING_RATE, BATCH_SIZE, EPOCHS, 
     TIER2_ENABLED, TIER2_MIN_COMPLEXITY, TIER2_MIN_SACRIFICES, TIER2_MIN_DRAW_COMPLEXITY
