@@ -12,7 +12,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from neural_network.src.engine_utils import board_to_tensor
-from config import GPU_DEVICE
+from config import GPU_DEVICE, LEARNING_RATE, BATCH_SIZE, EPOCHS
+from logging_config import setup_logging
 
 DATA_PATH = "/home/ubuntu/BugzyEngine/data/raw_pgn"
 PROCESSED_PATH = "/home/ubuntu/BugzyEngine/data/processed"
@@ -42,10 +43,10 @@ def train_model(model, data_path):
     """Trains the neural network model."""
     positions = []
     outcomes = []
-    print(f"Scanning for PGN files in {data_path}")
+    logger.info(f"Scanning for PGN files in {data_path}")
     for pgn_file in os.listdir(data_path):
         if pgn_file.endswith(".pgn"):
-            print(f"Processing {pgn_file}...")
+            logger.info(f"Processing {pgn_file}...")
             with open(os.path.join(data_path, pgn_file)) as f:
                 while True:
                     try:
@@ -66,14 +67,14 @@ def train_model(model, data_path):
                             positions.append(board_to_tensor(board.copy()))
                             outcomes.append(outcome)
                     except Exception as e:
-                        print(f"Skipping a malformed game in {pgn_file}: {e}")
+                        logger.warning(f"Skipping a malformed game in {pgn_file}: {e}")
                         continue
 
     if not positions:
-        print("No new training data found.")
+        logger.info("No new training data found.")
         return
 
-    print(f"Training on {len(positions)} new positions.")
+    logger.info(f"Training on {len(positions)} new positions.")
     X = torch.cat(positions)
     y = torch.FloatTensor(outcomes).unsqueeze(1).to(device)
 
@@ -81,10 +82,10 @@ def train_model(model, data_path):
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=256, shuffle=True)
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     model.train()
-    for epoch in range(6): # As per user preference
+    for epoch in range(EPOCHS):
         running_loss = 0.0
         for i, data in enumerate(train_loader, 0):
             inputs, labels = data
@@ -96,13 +97,13 @@ def train_model(model, data_path):
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-        print(f"Epoch {epoch + 1}, Loss: {running_loss / len(train_loader)}")
+        logger.info(f"Epoch {epoch + 1}, Loss: {running_loss / len(train_loader)}")
 
     # Atomic save
     temp_path = MODEL_PATH + ".tmp"
     torch.save(model.state_dict(), temp_path)
     os.rename(temp_path, MODEL_PATH)
-    print(f"Model saved to {MODEL_PATH}")
+    logger.info(f"Model saved to {MODEL_PATH}")
 
 def main():
     """Main function for the trainer."""
@@ -111,27 +112,29 @@ def main():
 
     model = ChessNet().to(device)
     if os.path.exists(MODEL_PATH):
-        print(f"Loading existing model from {MODEL_PATH}")
+        logger.info(f"Loading existing model from {MODEL_PATH}")
         model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     
-    print("BugzyEngine Trainer started.")
-    print(f"Using device: {device}")
+    logger.info("BugzyEngine Trainer started.")
+    logger.info(f"Using device: {device}")
 
     while True:
-        print("Watching for new PGN files...")
+        logger.info("Watching for new PGN files...")
         found_new_files = False
         pgn_files_in_dir = [f for f in os.listdir(DATA_PATH) if f.endswith(".pgn")]
         if pgn_files_in_dir:
-            print(f"Found {len(pgn_files_in_dir)} PGN files. Starting training cycle.")
+            logger.info(f"Found {len(pgn_files_in_dir)} PGN files. Starting training cycle.")
             train_model(model, DATA_PATH)
             # Move all processed files
             for pgn_file in pgn_files_in_dir:
                 src_path = os.path.join(DATA_PATH, pgn_file)
                 dest_path = os.path.join(PROCESSED_PATH, pgn_file)
                 shutil.move(src_path, dest_path)
-            print(f"Moved {len(pgn_files_in_dir)} processed files to {PROCESSED_PATH}")
+            logger.info(f"Moved {len(pgn_files_in_dir)} processed files to {PROCESSED_PATH}")
         else:
             time.sleep(60) # Wait for a minute before checking again
+
+logger = setup_logging("Trainer", "trainer.log")
 
 if __name__ == "__main__":
     import shutil
