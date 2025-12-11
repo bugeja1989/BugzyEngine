@@ -8,6 +8,7 @@ engine_utils.py: Core chess logic for the BugzyEngine.
 import chess
 import numpy as np
 import torch
+from typing import Optional, Tuple
 from config import GPU_DEVICE
 
 device = torch.device(GPU_DEVICE)
@@ -40,7 +41,7 @@ def evaluate_position(board: chess.Board, model) -> float:
         value = model(tensor)
     return value.item()
 
-def alpha_beta_search(board: chess.Board, depth: int, model, alpha: float = -np.inf, beta: float = np.inf) -> tuple[float, chess.Move | None]:
+def alpha_beta_search(board: chess.Board, depth: int, model, alpha: float = -np.inf, beta: float = np.inf) -> Tuple[float, Optional[chess.Move]]:
     """
     Performs an alpha-beta search to find the best move.
     """
