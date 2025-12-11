@@ -94,7 +94,7 @@ def process_single_pgn(file_path):
                 board = game.board()
                 for move in game.mainline_moves():
                     board.push(move)
-                    positions.append(board_to_tensor(board.copy()).numpy())
+                    positions.append(board_to_tensor(board.copy()).cpu().numpy())
                     outcomes.append(outcome)
     except Exception:
         pass
