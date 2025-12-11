@@ -9,6 +9,21 @@ LOG_DIR="$SCRIPT_DIR/logs"
 # Create logs directory
 mkdir -p "$LOG_DIR"
 
+# Create opening_books directory
+mkdir -p "$SCRIPT_DIR/opening_books"
+
+# Download opening book if not present
+OPENING_BOOK="$SCRIPT_DIR/opening_books/gm2001.bin"
+if [ ! -f "$OPENING_BOOK" ]; then
+    echo "📚 Downloading opening book (12,000+ GM positions)..."
+    curl -L -o "$OPENING_BOOK" "https://github.com/gmcheems-org/free-opening-books/raw/refs/heads/main/books/bin/gm2001.bin"
+    if [ -f "$OPENING_BOOK" ]; then
+        echo "   ✅ Opening book downloaded successfully!"
+    else
+        echo "   ⚠️  Failed to download opening book (will use fallback)"
+    fi
+fi
+
 # Check if already running
 if [ -f "$PID_FILE" ]; then
     echo "BugzyEngine appears to be already running (PID file exists)."

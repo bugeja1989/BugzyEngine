@@ -16,6 +16,7 @@ from flask import Flask, render_template_string, request, jsonify
 import chess
 import chess.engine
 import chess.pgn
+import chess.polyglot
 import torch
 import os
 import json
@@ -58,44 +59,35 @@ model_last_modified = 0
 model_version = 0
 
 # --- Opening Book ---
-OPENING_BOOK = [
-    # Italian Game - Aggressive
-    ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6", "d2d4", "e5d4", "c3d4"],
-    # King's Gambit - Ultra Aggressive
-    ["e2e4", "e7e5", "f2f4", "e5f4", "g1f3", "g7g5", "h2h4", "g5g4", "f3e5", "b8c6", "e5c6"],
-    # Scotch Game - Sharp
-    ["e2e4", "e7e5", "g1f3", "b8c6", "d2d4", "e5d4", "f3d4", "g8f6", "d4c6", "b7c6", "e4e5"],
-    # Sicilian Dragon - Attacking
-    ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "g7g6", "c1e3"],
-    # King's Indian Attack
-    ["e2e4", "e7e5", "g1f3", "b8c6", "d2d3", "d7d5", "b1d2", "g8f6", "g2g3", "f8c5", "f1g2"],
-    # Vienna Game - Aggressive
-    ["e2e4", "e7e5", "b1c3", "g8f6", "f2f4", "d7d5", "f4e5", "f6e4", "g1f3", "f8c5", "d2d4"],
-    # Ruy Lopez - Marshall Attack
-    ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "f8e7", "f1e1"],
-    # Alekhine Defense - Aggressive
-    ["e2e4", "g8f6", "e4e5", "f6d5", "d2d4", "d7d6", "g1f3", "c8g4", "f1e2", "e7e6", "e1g1"],
-]
+OPENING_BOOK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opening_books", "gm2001.bin")
+opening_book_reader = None
 
-def get_opening_move(move_count):
-    """Get a move from the opening book if within first 10-12 moves."""
-    if move_count >= 12:  # After 12 moves, use engine
+def load_opening_book():
+    """Load the polyglot opening book."""
+    global opening_book_reader
+    if os.path.exists(OPENING_BOOK_PATH):
+        try:
+            opening_book_reader = chess.polyglot.open_reader(OPENING_BOOK_PATH)
+            add_log("📚 Opening book loaded (12,000+ GM positions)")
+            return True
+        except Exception as e:
+            add_log(f"⚠️ Failed to load opening book: {e}")
+            return False
+    else:
+        add_log("⚠️ Opening book not found")
+        return False
+
+def get_opening_move():
+    """Get a move from the polyglot opening book."""
+    if not opening_book_reader:
         return None
     
-    # Pick a random opening if this is move 0
-    if move_count == 0:
-        global current_opening
-        current_opening = random.choice(OPENING_BOOK)
-    
-    # Return the move from the selected opening
-    if move_count < len(current_opening):
-        try:
-            return chess.Move.from_uci(current_opening[move_count])
-        except:
-            return None
-    return None
-
-current_opening = None
+    try:
+        # Get the best move from the opening book for current position
+        entry = opening_book_reader.weighted_choice(board)
+        return entry.move if entry else None
+    except:
+        return None
 
 def add_log(message):
     """Add a log entry with timestamp."""
@@ -147,6 +139,7 @@ else:
     add_log("⚠️ No model found - playing randomly")
 
 init_stockfish()
+load_opening_book()
 
 def count_trained_positions():
     """Count total positions from processed PGN files."""
@@ -242,10 +235,7 @@ def get_move_suggestions(num_suggestions=3):
 # --- Simulation Mode ---
 def run_simulation():
     """Run BugzyEngine vs Stockfish simulation."""
-    global simulation_running, board, move_history, current_opening
-    
-    # Reset opening book for new game
-    current_opening = None
+    global simulation_running, board, move_history
     
     add_log(f"🎮 Simulation started: BugzyEngine vs Stockfish (ELO {stockfish_elo})")
     
@@ -256,8 +246,8 @@ def run_simulation():
         time.sleep(1)  # Delay for visualization
         
         try:
-            # Try opening book first (first 12 moves)
-            opening_move = get_opening_move(move_count)
+            # Try opening book first
+            opening_move = get_opening_move()
             
             if opening_move and opening_move in board.legal_moves:
                 # Use opening book move
