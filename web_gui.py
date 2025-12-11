@@ -776,8 +776,7 @@ CYBERPUNK_HTML_V5 = """
     </div>
     
     <script>
-        let game = new Chess();
-        let board = null;
+        let game, board;
         let gameMode = 'manual';
         let playerColor = 'white';
         let stockfishElo = 2000;
@@ -996,8 +995,19 @@ CYBERPUNK_HTML_V5 = """
             }
         }
         
-        // Initialize when DOM is ready
+        // Initialize when DOM and libraries are ready
         document.addEventListener('DOMContentLoaded', function() {
+            // Wait for libraries to load
+            if (typeof Chess === 'undefined' || typeof Chessboard === 'undefined') {
+                console.error('Chess libraries not loaded!');
+                setTimeout(arguments.callee, 100);
+                return;
+            }
+            
+            // Initialize chess game
+            game = new Chess();
+            
+            // Initialize chessboard
             let config = {
                 draggable: true,
                 position: 'start',
