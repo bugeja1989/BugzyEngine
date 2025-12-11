@@ -424,6 +424,7 @@ HTML_TEMPLATE = """
                 
                 <h2 style="margin-top: 20px;">⚙️ CONTROLS</h2>
                 <button class="btn" onclick="resetGame()">🔄 NEW GAME</button>
+                <button class="btn" id="sim-btn" onclick="toggleSimulation()" style="display:none;">▶️ START SIMULATION</button>
                 <button class="btn btn-danger" onclick="copyPGN()">📋 COPY PGN</button>
             </div>
             
@@ -557,6 +558,15 @@ HTML_TEMPLATE = """
         
         function updateSettings() {
             gameMode = document.getElementById('game-mode').value;
+            
+            // Show/hide simulation button
+            var simBtn = document.getElementById('sim-btn');
+            if (gameMode === 'simulation') {
+                simBtn.style.display = 'block';
+            } else {
+                simBtn.style.display = 'none';
+            }
+            
             fetch('/api/settings', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -565,6 +575,49 @@ HTML_TEMPLATE = """
                     color: playerColor,
                     elo: stockfishElo
                 })
+            });
+        }
+        
+        var simulationRunning = false;
+        function toggleSimulation() {
+            simulationRunning = !simulationRunning;
+            var btn = document.getElementById('sim-btn');
+            if (simulationRunning) {
+                btn.textContent = '⏹️ STOP SIMULATION';
+                btn.classList.add('btn-danger');
+                runSimulation();
+            } else {
+                btn.textContent = '▶️ START SIMULATION';
+                btn.classList.remove('btn-danger');
+            }
+        }
+        
+        function runSimulation() {
+            if (!simulationRunning || game.game_over()) {
+                simulationRunning = false;
+                document.getElementById('sim-btn').textContent = '▶️ START SIMULATION';
+                return;
+            }
+            
+            // Make a move
+            fetch('/api/move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({move: ''})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.fen) {
+                    game.load(data.fen);
+                    board.position(data.fen);
+                    updateStatus();
+                    updateBoard();
+                }
+                
+                // Continue simulation
+                if (simulationRunning && !game.game_over()) {
+                    setTimeout(runSimulation, 1000);
+                }
             });
         }
         
