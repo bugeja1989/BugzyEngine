@@ -80,7 +80,12 @@ def process_single_pgn(file_path):
     if os.path.exists(cache_file):
         try:
             data = np.load(cache_file)
-            return file_path, list(data["positions"]), list(data["outcomes"]), True
+            positions = data["positions"]
+            # Validate shape: must be [N, 12, 8, 8] not [N, 1, 12, 8, 8]
+            if len(positions.shape) == 4 and positions.shape[1] == 12:
+                return file_path, list(positions), list(data["outcomes"]), True
+            # Invalid shape - delete bad cache and reprocess
+            os.remove(cache_file)
         except Exception:
             pass
 
