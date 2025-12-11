@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 import os
 import time
+import io
 import chess.pgn
 import sqlite3
 from watchdog.observers import Observer
@@ -86,7 +87,7 @@ async def process_player(session, player_username):
 
             try:
                 pgn_text = game_data["pgn"]
-                pgn_io = chess.pgn.io.StringIO(pgn_text)
+                pgn_io = io.StringIO(pgn_text)
                 game = chess.pgn.read_game(pgn_io)
                 if game and tier1_quality_filter(game):
                     with open(f"{DATA_DIR}/{player_username}_{game_id}.pgn", "w") as out_pgn:
