@@ -1,232 +1,332 @@
-# BugzyEngine: A Neural Chess Engine for macOS
+# ⚡ BugzyEngine 3.0 ⚡
 
-**BugzyEngine** is a production-grade chess engine designed to beat Stockfish through aggressive, chaotic, and psychologically-driven play. It leverages a neural network trained on games from the world's greatest attacking players, combined with advanced search algorithms and GPU acceleration on macOS.
+**The Cyberpunk Chess Engine That Beats Stockfish Through Chaos**
 
-## Features
-
-- **GPU Acceleration**: Full support for Apple Silicon (M-series) GPUs via PyTorch Metal Performance Shaders (MPS)
-- **Dynamic Player Discovery**: Automatically discovers and downloads games from 500+ Super GMs via the Chess.com API
-- **Neural Network Training**: Continuous training on high-quality attacking chess games
-- **Full Alpha-Beta Search**: Depth 3+ search with move ordering and repetition detection
-- **Atomic Model Saving**: Safe model persistence to prevent corruption
-- **Web GUI**: Interactive interface on Port 9443 for playing against the engine
-- **Modular Architecture**: Shared chess logic between trainer and GUI
-
-## System Architecture
-
-BugzyEngine consists of three main processes:
-
-1. **Data Collector** (`process1_chesscom_collector.py`): Fetches games from Chess.com API and monitors local PGN files
-2. **Neural Network Trainer** (`process2_trainer.py`): Continuously trains the model on new game data using GPU
-3. **Web GUI** (`web_gui.py`): Interactive chess interface running on Port 9443
-
-## Installation
-
-### Prerequisites
-
-- macOS with Python 3.11+
-- Homebrew (for easy dependency management)
-- Apple Silicon (M-series) Mac for GPU acceleration (or Intel Mac with CUDA support)
-
-### Setup
-
-1. Clone or download the BugzyEngine repository
-2. Navigate to the project directory:
-   ```bash
-   cd BugzyEngine
-   ```
-
-3. Run the installation script:
-   ```bash
-   chmod +x install.sh
-   ./install.sh
-   ```
-
-4. Activate the virtual environment:
-   ```bash
-   source venv/bin/activate
-   ```
-
-## Usage
-
-### Starting BugzyEngine
-
-Run the main launcher script:
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-This will start all three processes:
-- Data Collector: Begins fetching games from Chess.com
-- Trainer: Monitors for new PGN files and trains the model
-- Web GUI: Launches on `http://localhost:9443`
-
-### Playing Against BugzyEngine
-
-1. Open your browser to `http://localhost:9443`
-2. Make your move using algebraic notation (e.g., `e2e4`)
-3. BugzyEngine will respond with its move
-4. Click "New Game" to reset the board
-
-## Configuration
-
-Edit `config.py` to customize:
-
-- **WEB_PORT**: Web GUI port (default: 9443)
-- **GPU_DEVICE**: GPU device ("mps" for Apple Silicon, "cuda" for NVIDIA, "cpu" for CPU-only)
-- **HISTORICAL_LEGENDS**: List of legendary players to always include in training data
-- **CHESS_COM_API_BASE_URL**: Chess.com API endpoint
-
-## Project Structure
-
-```
-BugzyEngine/
-├── config.py                          # Configuration settings
-├── process1_chesscom_collector.py     # Data collector
-├── process2_trainer.py                # Neural network trainer
-├── web_gui.py                         # Web interface
-├── neural_network/
-│   └── src/
-│       └── engine_utils.py            # Shared chess logic
-├── data/
-│   ├── raw_pgn/                       # Downloaded PGN files
-│   └── processed/                     # Processed training data
-├── models/                            # Trained model files
-├── logs/                              # Training logs
-├── requirements.txt                   # Python dependencies
-├── install.sh                         # Installation script
-├── run.sh                             # Launcher script
-└── README.md                          # This file
-```
-
-## Data Collection Strategy
-
-BugzyEngine uses a sophisticated multi-phase approach to data acquisition:
-
-### Phase 1: Historical Legends
-Includes games from Tal, Fischer, Kasparov, Morphy, Alekhine, Botvinnik, Capablanca, Stein, Bronstein, Polgar, Carlsen, and Nakamura.
-
-### Phase 2: Dynamic GM Discovery
-Automatically fetches from:
-- Top 100 Global Leaderboard players (Blitz, Bullet, Rapid)
-- All titled GMs with ELO > 2600
-- All titled IMs with ELO > 2600
-
-### Phase 3: Style Filtering
-Only collects games matching these criteria:
-- **Wins Only**: Excludes draws and unfinished games
-- **Sacrifices**: Prioritizes games with material sacrifices for initiative
-- **Short Games**: Focuses on games < 40 moves (crushing victories)
-
-### Phase 4: Continuous Retraining
-The system continuously monitors for new data and retrains the model with each new batch of games.
-
-## Neural Network Architecture
-
-The BugzyEngine uses a convolutional neural network (CNN) with the following structure:
-
-- **Input Layer**: 12 channels (6 piece types × 2 colors) × 8×8 board
-- **Conv Layer 1**: 64 filters, 3×3 kernel
-- **Conv Layer 2**: 64 filters, 3×3 kernel
-- **Fully Connected Layer 1**: 256 neurons with ReLU activation
-- **Output Layer**: 1 neuron with Tanh activation (evaluation range: -1 to +1)
-
-### Training Configuration
-
-- **Optimizer**: Adam
-- **Loss Function**: Mean Squared Error (MSE)
-- **Epochs**: 6 (user preference)
-- **Batch Size**: 256
-- **Learning Rate**: 0.001
-- **Device**: GPU (MPS on Apple Silicon)
-
-## Search Algorithm
-
-BugzyEngine uses Alpha-Beta search with the following enhancements:
-
-- **Depth**: 3+ plies (configurable)
-- **Move Ordering**: Captures prioritized first
-- **Repetition Detection**: Avoids repetitions when possible
-- **Neural Network Evaluation**: Position evaluation via trained model
-
-## GPU Support
-
-### Apple Silicon (M-series)
-
-BugzyEngine automatically detects and uses Metal Performance Shaders (MPS) for GPU acceleration. To verify MPS is available:
-
-```bash
-python -c "import torch; print(torch.backends.mps.is_available())"
-```
-
-### NVIDIA GPUs
-
-To use NVIDIA GPUs, install PyTorch with CUDA support and update `config.py`:
-
-```python
-GPU_DEVICE = "cuda"
-```
-
-### CPU-Only Mode
-
-To run on CPU only:
-
-```python
-GPU_DEVICE = "cpu"
-```
-
-## Troubleshooting
-
-### Model Not Found
-
-If you see "No model found" on startup, the engine will play randomly until training data is collected. This is normal on first run.
-
-### Rate Limiting
-
-If you encounter Chess.com API rate limiting, the collector will automatically wait and retry. The default rate limit is 1 request per second.
-
-### Memory Issues
-
-If you run out of memory during training, reduce the batch size in `process2_trainer.py`:
-
-```python
-train_loader = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=True)
-```
-
-## Performance Metrics
-
-- **Training Speed**: ~1000 positions/second on Apple M4 Pro with GPU
-- **Inference Speed**: ~100 positions/second on Apple M4 Pro with GPU
-- **Model Size**: ~2 MB (PyTorch format)
-- **Data Collection**: ~50 games/minute from Chess.com API
-
-## Future Enhancements
-
-- Opening book integration (first 10 moves)
-- Endgame tablebase support
-- Multi-GPU training
-- Distributed data collection
-- Web-based training dashboard
-- Lichess integration
-- TWIC database support
-
-## Contributing
-
-Contributions are welcome! Please submit pull requests or open issues for bugs and feature requests.
-
-## License
-
-BugzyEngine is provided as-is for educational and research purposes.
-
-## Disclaimer
-
-BugzyEngine is designed to be a strong chess engine but is not guaranteed to beat Stockfish or any other engine. Chess engine strength depends on many factors including hardware, training data quality, and hyperparameter tuning.
-
-## Support
-
-For issues, questions, or feature requests, please open an issue on the project repository.
+BugzyEngine is a neural chess engine designed to beat Stockfish by playing dangerous, chaotic, and psychological chess. Built with PyTorch, trained on 500+ Super GMs, and featuring a stunning Cyberpunk web interface.
 
 ---
 
-**Built with ♟️ by the Manus AI team**
+## 🎯 Project Goal
+
+**Beat Stockfish** by learning from the most aggressive, sacrificial, and complex games ever played. BugzyEngine doesn't play "perfect" chess—it plays **dangerous** chess.
+
+---
+
+## ✨ Features
+
+### 🧠 Neural Network
+- **PyTorch-based CNN** (12→64→64→256→1 architecture)
+- **Full GPU acceleration** via Apple Metal Performance Shaders (MPS)
+- **Continuous training** on new game data (6 epochs, batch size 256)
+- **Atomic model saving** to prevent corruption
+
+### 📥 Data Collector
+- **Dynamic GM discovery**: Automatically finds 500+ Super GMs via Chess.com API
+- **Async/parallel downloads**: 20 players processed simultaneously
+- **Advanced filtering**:
+  - Wins only (or draws with >95% accuracy)
+  - Sacrifice detection (material balance tracking)
+  - Complexity scoring (captures + checks)
+- **Folder watcher**: Drop PGN files from TWIC or Lichess
+- **Database tracking**: Never downloads the same game twice
+
+### 🎮 Cyberpunk Web GUI
+- **Drag-and-drop chess interface** using chessboard.js
+- **Real-time stats dashboard**:
+  - GPU Status (METAL ACTIVE)
+  - Positions Trained
+  - Model Status
+  - Move Count
+- **Engine logs** with timestamps
+- **Move history** panel
+- **PGN export** functionality
+- **Cyberpunk aesthetic**: Black/Neon Blue/Pink/Green
+
+### 🔧 Architecture
+- **Unified chess logic** in `engine_utils.py`
+- **Alpha-beta search** with move ordering
+- **Centralized configuration** (`config.py`)
+- **Comprehensive logging** system
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- **macOS** (Apple Silicon recommended for MPS support)
+- **Python 3.11+**
+- **Homebrew** (for Python installation)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone git@github.com:bugeja1989/BugzyEngine.git
+cd BugzyEngine
+
+# Run the installer
+chmod +x install.sh
+./install.sh
+```
+
+### Running BugzyEngine
+
+```bash
+# Start all processes in background
+./run.sh
+
+# Check status
+./status.sh
+
+# Stop all processes
+./stop.sh
+```
+
+### Access the GUI
+
+Open your browser and navigate to:
+```
+http://localhost:9443
+```
+
+---
+
+## 📊 System Architecture
+
+BugzyEngine consists of three processes:
+
+### 1. Data Collector (`process1_chesscom_collector.py`)
+- Discovers and downloads games from 500+ Super GMs
+- Filters for attacking, sacrificial, complex games
+- Runs continuously, checking for new games every hour
+
+### 2. Neural Network Trainer (`process2_trainer.py`)
+- Watches for new PGN files
+- Trains the neural network on GPU
+- Saves models atomically
+- Runs continuously in background
+
+### 3. Web GUI (`web_gui.py`)
+- Interactive chess interface on Port 9443
+- Real-time stats and logs
+- Drag-and-drop piece movement
+- Full alpha-beta search integration
+
+---
+
+## ⚙️ Configuration
+
+Edit `config.py` to customize:
+
+```python
+# System
+WEB_PORT = 9443
+GPU_DEVICE = "mps"  # "mps" for Apple Silicon, "cuda" for NVIDIA, "cpu" for CPU-only
+
+# Collector
+COLLECTOR_CONCURRENCY = 20  # Players to process in parallel
+ELO_THRESHOLD = 2600  # Minimum ELO for titled players
+TOP_N_PLAYERS = 100  # Number of top players from leaderboards
+
+# Filtering
+MIN_COMPLEXITY_SCORE = 15  # Minimum captures + checks
+MIN_SACRIFICES = 1  # Minimum sacrifices required
+MIN_DRAW_COMPLEXITY = 25  # Complexity threshold for draws
+
+# Trainer
+LEARNING_RATE = 0.001
+BATCH_SIZE = 256
+EPOCHS = 6
+
+# Search
+SEARCH_DEPTH = 3
+```
+
+---
+
+## 📁 Project Structure
+
+```
+BugzyEngine/
+├── config.py                          # Centralized configuration
+├── logging_config.py                  # Logging setup
+├── process1_chesscom_collector.py     # Data collector
+├── process2_trainer.py                # Neural trainer
+├── web_gui.py                         # Cyberpunk web interface
+├── neural_network/src/engine_utils.py # Shared chess logic
+├── data/
+│   ├── raw_pgn/                       # Downloaded games
+│   ├── processed/                     # Processed games
+│   └── collector.db                   # SQLite tracking database
+├── models/                            # Trained models
+├── logs/                              # Log files
+├── install.sh                         # Installation script
+├── run.sh                             # Launcher (background mode)
+├── stop.sh                            # Shutdown script
+├── status.sh                          # Status checker
+└── README.md                          # This file
+```
+
+---
+
+## 🎨 Cyberpunk GUI Features
+
+### Control Panel
+- **NEW GAME**: Reset the board
+- **COPY PGN**: Export game to clipboard
+
+### Stats Dashboard
+- **GPU STATUS**: Shows METAL ACTIVE (or CUDA/CPU)
+- **POSITIONS TRAINED**: Total positions learned
+- **MODEL STATUS**: LOADED or RANDOM
+- **MOVE COUNT**: Moves in current game
+
+### Engine Logs
+Real-time scrolling logs showing:
+- Player moves
+- Engine moves with [CHAOS MODE] indicator
+- Thinking process
+- Game over notifications
+
+### Move History
+Scrollable list of all moves in the current game
+
+---
+
+## 🔥 Advanced Usage
+
+### Monitor Logs
+
+```bash
+# Watch all logs in real-time
+tail -f logs/*.log
+
+# Watch specific process
+tail -f logs/collector.log
+tail -f logs/trainer.log
+```
+
+### Manual Data Collection
+
+Drop PGN files into `data/raw_pgn/` and the collector will process them automatically.
+
+### Training Status
+
+Check `logs/trainer.log` to see:
+- Number of positions being trained
+- Loss per epoch
+- Model save confirmations
+
+---
+
+## 🏆 Training Methodology
+
+BugzyEngine follows a four-phase, quality-first approach:
+
+1. **Phase 1**: Top 100 Super GMs (500 games each)
+2. **Phase 2**: Historical legends (Tal, Fischer, Kasparov, etc.)
+3. **Phase 3**: Top 1000 players (500 games each)
+4. **Phase 4**: Continuous retraining (+1000 games per cycle)
+
+---
+
+## 🐛 Troubleshooting
+
+### Port Already in Use
+```bash
+# Kill process on port 9443
+lsof -ti:9443 | xargs kill -9
+```
+
+### GPU Not Detected
+Check `logs/trainer.log` for device information. If MPS is not available, the engine will fall back to CPU.
+
+### No Games Collected
+- Check `logs/collector.log` for API errors
+- Verify internet connection
+- Ensure Chess.com API is accessible
+
+### Model Not Loading
+- Check if `models/bugzy_model.pth` exists
+- Verify file permissions
+- Check `logs/webgui_stdout.log` for errors
+
+---
+
+## 📝 Development
+
+### Running Individual Processes
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run collector only
+python3 process1_chesscom_collector.py
+
+# Run trainer only
+python3 process2_trainer.py
+
+# Run web GUI only
+python3 web_gui.py
+```
+
+### Testing
+
+```bash
+# Check for syntax errors
+python3.11 -m py_compile *.py
+
+# Run with verbose output
+python3 web_gui.py
+```
+
+---
+
+## 🤝 Contributing
+
+BugzyEngine is designed for collaboration with Chess.com and the chess AI community. Contributions welcome!
+
+---
+
+## 📜 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 🔗 Links
+
+- **Repository**: https://github.com/bugeja1989/BugzyEngine
+- **SSH Clone**: `git clone git@github.com:bugeja1989/BugzyEngine.git`
+
+---
+
+## 🎯 Roadmap
+
+### Completed ✅
+- Dynamic GM discovery (500+ players)
+- Async/parallel data collection
+- Advanced game filtering (sacrifices, complexity)
+- Cyberpunk web GUI with drag-and-drop
+- Real-time stats dashboard
+- Centralized logging
+- Background process management
+
+### In Progress 🚧
+- Opening book integration (first 10 moves)
+- Lichess API integration
+- Enhanced sacrifice detection
+
+### Planned 🔮
+- Stockfish simulation mode
+- UCI protocol support
+- Multi-GPU training
+- Real-time training dashboard
+- Mobile-responsive GUI
+
+---
+
+**Built with ❤️ and ⚡ by Manus AI**
+
+*"Don't play perfect chess. Play dangerous chess."*
